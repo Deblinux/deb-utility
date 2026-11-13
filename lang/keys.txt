@@ -1,0 +1,670 @@
+(spento o non attivo)
+Monitor
+Modello
+Produttore
+ID PCI
+Posizione PCI
+Driver in uso
+nessuno (driver non caricato)
+Moduli del kernel
+Memoria video
+Versione driver NVIDIA
+Condivisa con la RAM (scheda integrata)
+Rendering OpenGL
+Versione OpenGL
+OpenGL
+non disponibile (installa mesa-utils)
+Computer fisso (desktop/torre)
+Portatile (notebook)
+Tutto in uno
+Tablet / convertibile
+Mini PC
+Altro
+UEFI
+BIOS (legacy)
+Sistema e scheda madre
+Memoria RAM
+RAM totale
+Dettagli dei moduli
+vedi la scheda «Memoria RAM»
+Scheda video
+Scheda audio
+Dispositivo audio
+Audio
+Scheda di rete
+Rete
+Dischi e memorie
+Altri dispositivi PCI
+Dispositivo USB
+Dispositivi USB
+Bluetooth
+Presente
+Dispositivo di input
+Tastiera, mouse e altri input
+Webcam
+Tecnologia
+Cicli di carica
+Capacità di progetto
+Batteria
+Capacità massima
+Numero di slot
+Correzione errori (ECC)
+▶ Leggo i moduli di memoria...
+dmidecode non è installato: installalo con sudo apt install dmidecode
+Impossibile leggere i moduli di memoria (password annullata o dati non disponibili, per esempio in una macchina virtuale).
+Rileva marca e tipo dei moduli (richiede password)
+Slot e capacità
+Slot libero
+Marca
+Codice modello
+Tipo
+Velocità
+Formato
+🔄 Ricarica
+Nessuna scheda video rilevata (installa pciutils: sudo apt install pciutils)
+Architettura
+Core fisici
+n/d
+Thread
+Cache
+Processore
+Qui vedi quanta memoria RAM ha il computer e, premendo il pulsante, anche la marca, il tipo (DDR3, DDR4...) e la velocità di ogni modulo. Serve la password di amministratore perché questi dati si leggono dalla scheda madre.
+La scheda video (GPU) disegna tutto ciò che vedi sullo schermo. Qui trovi modello, produttore, driver in uso, memoria video e i monitor collegati.
+Elenco di tutti i componenti del computer: scheda madre, processore, memoria, schede video e audio, rete, dischi, USB, tastiera, webcam, monitor e batteria. Utile per sapere esattamente cosa c'è dentro il tuo PC.
+Distribuzione
+Versione Debian
+Kernel
+Nome host
+Attendo l'autorizzazione di amministratore...
+Spazio recuperabile stimato:
+Pulisci selezionati
+Analizza
+Nessun selettore di file trovato: installa zenity (sudo apt install zenity)
+Deb
+Clean
+Ottimizzatore di sistema
+Pronto
+Conferma
+Annulla
+Chiudere DebClean?
+Un'operazione è ancora in corso (pulizia, aggiornamento o altro). Se chiudi ora potrebbe interrompersi a metà e lasciare il sistema in uno stato incompleto.
+Ti consiglio di aspettare che finisca.
+Vuoi davvero chiudere DebClean?
+Chiudi
+Continua a usare DebClean
+Qui elimini i file che non servono più (cache, file temporanei, cestino...) per liberare spazio. Spunta le voci che vuoi pulire, premi «Analizza» per vedere quanto spazio recuperi e poi «Pulisci selezionati».
+Dashboard
+Pulizia
+Fixer
+Aggiornamenti
+Info hardware
+Disco
+Processi
+App installate
+Ottimizza RAM
+Temperature
+Kernel, Grub, Recovery
+Repository e driver
+Startup
+Permessi utente
+Sicurezza e firewall
+Backup
+File shredder
+Log debug
+Impostazioni
+Guida
+▶ Applico la correzione...
+Prima
+Dopo
+Parametri aggiunti
+Parametri rimossi
+Riga di comando del kernel attuale
+Riga di comando dopo il riavvio
+In hold: 
+Occupato
+🔄 Esegui controlli
+🛠 Correggi tutto
+Nessun controllo eseguito: premi «Esegui controlli».
+Correggi
+Strumenti di riparazione manuali
+Ripara database APT
+Correggi dipendenze rotte
+Riconfigura pacchetti
+Pulisci pacchetti orfani
+Ripara chiavi APT mancanti
+Verifica integrità pacchetti
+Rimuovi i kernel obsoleti per liberare spazio. Il kernel in uso è protetto.
+in uso
+🗑 Rimuovi selezionati
+Governor CPU
+Gestione della frequenza non disponibile su questo sistema.
+Governor
+Applica governor
+Memoria virtuale (swappiness)
+vm.swappiness
+Applica swappiness
+Parametri di avvio (GRUB_CMDLINE_LINUX_DEFAULT):
+Suggerimenti in base all'hardware:
+Caratteri non ammessi nei parametri.
+💾 Salva e aggiorna GRUB
+Salvare i parametri e rigenerare GRUB? Verrà creato un backup in /etc/default/grub.debclean.bak.
+Anteprima
+Aggiorna GRUB
+Anteprima delle modifiche (non è stato cambiato nulla)
+🔊 Riavvia audio
+🌐 Riavvia rete
+Riavviare i servizi di rete?
+🧱 Ricostruisci GRUB
+Rigenerare la configurazione di GRUB?
+♻ Reinstalla GRUB
+Reinstallare il bootloader GRUB? Operazione delicata: assicurati di avere un backup.
+📦 Ripristina Flathub
+Sorgenti software configurate:
+Aggiungi un repository (riga completa, es. "deb http://... suite componenti"):
+Aggiungi repository
+Aggiungere questo repository alle sorgenti APT?
+Release rilevata
+abilitati da DebClean
+non abilitati da DebClean
+I Backports non sono disponibili per questa release.
+Abilita Debian Backports
+Abilitare i Debian Backports?
+Aggiorna elenchi pacchetti
+Rileggi sorgenti
+Sorgenti avanzate:
+Rileva l'hardware del computer e propone i driver e i firmware da installare.
+Rileva hardware e driver
+Premi «Rileva hardware e driver» per analizzare il computer.
+Hardware rilevato
+Driver proposti
+già installato
+non disponibile nei repository
+consigliato
+Hardware
+Alcuni pacchetti non sono disponibili: i componenti contrib/non-free potrebbero non essere abilitati.
+Abilita contrib e non-free
+Installa selezionati
+Disattiva le applicazioni avviate automaticamente al login per ridurre i tempi di avvio.
+Nessuna voce di avvio automatico trovata.
+Utente
+gruppo non presente
+✔ Applica modifiche
+Le modifiche diventano attive dopo logout o riavvio.
+Rimuovere {} kernel e aggiornare GRUB?
+Installare {} pacchetti driver/firmware?
+Controlla se il sistema ha problemi (pacchetti rotti, servizi fermi, disco quasi pieno...). Il segno ✔ verde significa che va tutto bene; se vedi ⚠ o ✘ premi «Correggi» accanto al problema, oppure «Correggi tutto».
+Il kernel è il cuore del sistema. Qui scegli come il processore bilancia velocità e consumi (governor) e quanto il sistema usa il disco al posto della RAM (swappiness). Se non sei sicuro, lascia i valori attuali.
+GRUB è il programma che parte per primo e avvia Debian. I «parametri di avvio» sono opzioni passate al sistema quando si accende. Usa «Anteprima» per vedere cosa cambierebbe prima di salvare; se non sei sicuro, non modificare nulla.
+Strumenti di emergenza per quando qualcosa smette di funzionare: riavviano audio e rete, ricostruiscono il menu di avvio (GRUB) o ripristinano Flathub. Usali solo se hai un problema preciso.
+I gruppi decidono cosa può fare il tuo utente: sudo = diventare amministratore, dialout = usare le porte seriali (Arduino), vboxusers = VirtualBox, docker = Docker. Spunta quelli che ti servono, premi «Applica modifiche» e poi riavvia la sessione.
+Fixer — diagnosi e riparazione
+Kernel, Grub e Recovery
+Startup — programmi all'avvio
+Gestione permessi utente
+Kernel manager
+Kernel e prestazioni
+Grub
+Recovery
+Driver manager
+App repository
+Repository Manager
+Rete (USB)
+Abilitare i componenti contrib e non-free di Debian?
+Modificare i gruppi dell'utente? Serve un logout o un riavvio per renderle attive.
+nome file non valido
+▶ Rilevo l'hardware...
+Trova e rimuovi le cartelle vuote e i file da 0 byte nella tua cartella personale. Prima di eliminare vedrai sempre l'elenco e dovrai confermare.
+Includi anche le cartelle nascoste (meglio lasciare disattivato)
+Cerca
+Selezionati
+Seleziona tutto
+Deseleziona tutto
+Elimina selezionati
+Confermi l'eliminazione?
+Allunga la durata della batteria del notebook scegliendo come il processore usa l'energia. Funziona solo sui portatili: un PC fisso non ha la batteria.
+Questo computer non ha una batteria (è un PC fisso). Il risparmio energetico per la batteria è disponibile solo sui notebook.
+Modalità attuale del processore
+Applica
+Le impostazioni valgono fino al riavvio del computer.
+Cosa sono i servizi
+I servizi (o «demoni») sono programmi che girano sempre in background e gestiscono le funzioni chiave del sistema: la rete, il server SSH, il Bluetooth, il firewall.
+Verifica stato: controlla se il servizio è attivo (running) o fermo (dead), senza modificare nulla.
+Avvia: attiva subito il servizio per la sessione corrente (richiede privilegi di amministratore).
+Arresta: ferma il servizio in tempo reale per liberare memoria o interrompere una funzione (richiede privilegi di amministratore).
+Attenzione: fermare servizi critici come networking o NetworkManager può disconnettere temporaneamente il PC da Internet.
+Servizi comuni
+Oppure scrivi il nome:
+Servizio attivo (running)
+Servizio fermo (dead)
+Stato sconosciuto: premi «Verifica stato»
+Verifica stato
+Avvia servizio
+Arresta servizio
+Arrestare questo servizio? Se è un servizio critico potresti perdere la connessione a Internet.
+Analizza i punti che possono rallentare il sistema e intervieni con i pulsanti qui sotto.
+Analisi avvio: mostra i servizi che impiegano più tempo a caricarsi all'accensione.
+Gestione swap: regola la «swappiness», cioè quanto il sistema usa il disco al posto della RAM.
+Manutenzione disco: esegue TRIM (solo SSD) per mantenere alte le velocità di lettura e scrittura.
+Processi pesanti: mostra le applicazioni che consumano più CPU e RAM.
+Ottimizza tutto: manutenzione completa automatica (TRIM, pulizia cache, ottimizzazione memoria).
+Attenzione: alcune operazioni richiedono privilegi di amministratore.
+Analisi avvio
+Trova processi pesanti
+Manutenzione disco (TRIM)
+Gestione swap
+Valori bassi usano di più la RAM; valori alti spostano prima i dati sul disco. 10-30 è ideale per la maggior parte dei PC desktop.
+Ottimizza tutto
+Eseguire la manutenzione completa (TRIM, pulizia cache, ottimizzazione memoria)?
+Mostra gli ultimi eventi e messaggi di sistema registrati da journalctl. Utile per diagnosticare eventuali problemi.
+Usa i privilegi di amministratore (mostra tutti i messaggi)
+Filtro testo:
+Pulizia avanzata
+Risparmio energetico
+Servizi di sistema
+Ottimizzazione performance
+Log sistema
+DebClean riunisce in un'unica applicazione pulizia, riparazione, monitoraggio e amministrazione del sistema. Quando una funzione richiede i privilegi di amministratore, il sistema mostra una finestra per l'autorizzazione; le operazioni delicate chiedono sempre conferma prima di procedere. Qui sotto trovi la spiegazione di ogni funzione.
+Cerca nella guida:
+Attenzione
+Nessun risultato per questa ricerca.
+Guida di DebClean
+UFW blocca i tentativi di accesso non autorizzati dalla rete.
+Stato
+🛡 Attiva firewall
+Disattiva firewall
+Disattivare il firewall? Il PC sarà più esposto sulla rete.
+Installa UFW
+Servizi in ascolto
+🔎 Scansione porte locali
+Log firewall
+Sorgente:  
+Destinazione:
+💾 Avvia backup
+Cartella dei backup:
+Salva elenco pacchetti
+Ripristina pacchetti
+Reinstallare i pacchetti dell'elenco salvato?
+Backup repository
+Ripristina repository
+Ripristinare repository e chiavi dal backup? Le sorgenti attuali verranno sovrascritte.
+Punti di ripristino dell'intero sistema (usa Timeshift).
+➕ Crea punto di ripristino
+📋 Elenca punti
+Installa Timeshift
+Nome snapshot da ripristinare:
+⏪ Ripristina punto
+Ripristinare il sistema a questo punto? Le modifiche successive andranno perse e verrà richiesto un riavvio.
+▶ Riprendi
+⏸ Pausa
+🧽 Pulisci
+Errori di sistema (journal)
+Operazioni di DebClean:
+Errori del journal:
+Sovrascrive più volte il file con dati casuali e zeri, poi lo elimina. L'operazione è irreversibile.
+File e cartelle da distruggere (uno per riga):
+📄 Scegli file...
+📁 Scegli cartella...
+Svuota elenco
+Passaggi di sovrascrittura
+Indica un percorso assoluto esistente (la radice e la cartella home sono protette).
+🗑 Distruggi
+Nota: su SSD e file system con journaling/snapshot (btrfs, ZFS) la sovrascrittura non offre garanzie complete.
+Lingua
+Lingua dell'interfaccia
+Opzioni generali
+Pulizia rapida della cache utente all'avvio
+Password amministratore
+↺ Reimposta configurazione
+Distruggere DEFINITIVAMENTE {} elementi? Non sarà possibile recuperarli.
+Mostra quali programmi sono in ascolto sulla rete (le «porte aperte») e i log del firewall. Serve a capire se qualcosa è esposto: se non riconosci un servizio, cercalo online prima di fermarlo.
+Copia le tue cartelle importanti (documenti, foto...) in un'altra posizione, meglio se su un disco esterno. Indica la sorgente e la destinazione e premi «Avvia backup».
+Salva l'elenco dei programmi installati e dei repository, così dopo una reinstallazione puoi ripristinare tutto con pochi clic. Non salva i tuoi file personali: per quelli usa «File e cartelle».
+Gestione backup
+Distruggi file sicuro
+Firewall UFW
+Sicurezza avanzata
+File e cartelle
+Pacchetti di sistema
+Punti di ripristino
+▶ Scansione porte locali (1-65535)...
+Analisi in corso...
+Sto controllando lo stato del sistema.
+Apri il Fixer per correggerli.
+Il sistema funziona, con alcuni avvisi
+Il sistema è in buono stato
+Nessun problema rilevato.
+Ottimizza ora
+Diagnosi completa
+Utilizzo CPU (ultimi 60 secondi)
+Utilizzo RAM (ultimi 60 secondi)
+Sistema
+Memoria
+zRAM: non attiva
+Dischi
+Nessuna interfaccia con IP
+Memoria e dischi (modelli)
+Scheda madre e BIOS
+Non rilevata (installa pciutils: sudo apt install pciutils)
+Verifica lo stato di salute dei dischi (richiede smartmontools).
+Dischi rilevati
+Nessun disco rilevato.
+Tipo di disco
+Identificazione
+Stato e attributi
+Test rapido
+Test esteso
+Il test esteso può durare ore (gira in background sul disco). Avviarlo?
+Log errori
+Trova i file grandi e inutilizzati nella tua cartella personale.
+Dimensione minima (MB):
+Inutilizzati da (giorni):
+🔍 Cerca
+Calcola la dimensione delle cartelle principali di un percorso.
+Percorso:
+📏 Calcola
+Mette sotto sforzo processore e memoria per individuare instabilità.
+Durata CPU (s):
+🔥 Stress CPU
+Memoria da testare (MB):
+🧪 Test RAM
+Filtro:
+Termina
+Kill
+Chiusura forzata (SIGKILL)
+Cerca:
+pacchetti
+ (mostrati i primi 300: usa la ricerca)
+Disinstalla
+Crea una memoria compressa virtuale nella RAM fisica per migliorare le prestazioni quando la memoria scarseggia.
+Dimensione zRAM (MB)
+⚡ Ottimizza RAM
+⏻ Disattiva zRAM
+Stato attuale
+zRAM non attiva.
+Nota: la configurazione vale fino al riavvio.
+La regolazione della frequenza del processore non è disponibile su questo sistema.
+Modalità di raffreddamento
+Riduce al 70% la velocità massima del processore e attiva il profilo a basso consumo: il computer produce meno calore e le ventole girano più piano. Utile se il PC scalda troppo; i programmi pesanti saranno un po' più lenti.
+Raffreddamento attivo
+Raffreddamento non attivo (velocità normale)
+Attiva modalità di raffreddamento
+Attivare la modalità di raffreddamento? Il processore sarà limitato al 70% della velocità massima.
+Disattiva e ripristina
+Nessun sensore rilevato. Installa e configura lm-sensors: sudo apt install lm-sensors && sudo sensors-detect
+Gateway locale (router)
+Servizio DNS
+Connessione Internet
+🔍 Test diagnostico
+♻ Ripristina rete e Wi-Fi
+Riavviare NetworkManager? La connessione cadrà per qualche secondo.
+Interfacce
+DebClean
+Strumento di manutenzione, diagnosi e configurazione per Debian, scritto in Rust.
+Obiettivo: riunire in un'unica interfaccia pulizia, riparazione, monitoraggio e amministrazione del sistema.
+Licenza: software Open Source.
+Avviso di sicurezza: molte operazioni modificano il sistema. Esegui sempre un backup dei dati importanti prima di procedere.
+{} problemi richiedono attenzione
+{} avvisi da controllare nel Fixer.
+zRAM attiva: {} (algoritmo {}), dati {} → compressi {}
+Eliminare definitivamente {} file? L'operazione non è reversibile.
+Disinstallare «{}»?
+Occupazione: {} / {}
+Algoritmo di compressione: {}
+Rapporto di compressione: {}:1
+Un processo è un programma in esecuzione. Qui vedi quali consumano più CPU e memoria. Se un programma si blocca, premi «Termina» per chiuderlo con gentilezza; se non risponde usa «Kill».
+I pacchetti APT sono i programmi installati dal gestore software di Debian. Cerca il nome e premi il cestino per disinstallare quello che non ti serve: ti verrà chiesta conferma.
+Flatpak è un altro modo di installare programmi: ognuno vive in una «scatola» separata dal resto del sistema. Qui vedi le app Flatpak e puoi disinstallarle con il cestino.
+Le tre spie dicono se il router (gateway), il DNS (che traduce i nomi dei siti in indirizzi) e Internet funzionano: verde = ok, rosso = problema. «Test diagnostico» le ricontrolla; «Ripristina rete e Wi-Fi» riavvia la rete se qualcosa non va.
+Info hardware e sistema
+Ottimizza RAM (zRAM)
+Monitor temperature
+Info
+Hardware e rete
+Tutti i componenti
+About
+Analisi disco
+File grandi
+Spazio disco
+Stress test
+Pacchetti APT
+Pacchetti Flatpak
+CPU
+RAM
+Swap
+Disco /
+Uptime
+Temperatura
+Temperatura CPU
+Dettagli
+Libera spazio su disco
+Ripara gli errori di sistema
+Driver
+Rileva e installa i driver
+Salute e spazio
+Proteggi i tuoi dati
+Sicurezza
+Firewall e porte
+▶ Cerco aggiornamenti...
+Controllo gli aggiornamenti Flatpak...
+▶ Aggiorno le app Flatpak...
+▶ Aggiorno i pacchetti APT...
+Aggiornamenti non ancora controllati: premi «Cerca aggiornamenti».
+Nessun aggiornamento APT: il sistema è aggiornato.
+Nessun aggiornamento Flatpak.
+Serve riavviare il computer per completare l'aggiornamento.
+Aggiornare ora? L'operazione può richiedere diversi minuti: non spegnere il computer e non chiudere DebClean finché non finisce.
+Cerca aggiornamenti
+Aggiorna APT
+Aggiorna Flatpak
+Aggiorna tutto
+Output APT
+Output Flatpak
+{} aggiornamenti APT disponibili
+{} aggiornamenti Flatpak disponibili
+Pacchetti APT da aggiornare: {}
+App Flatpak da aggiornare: {}
+Gli aggiornamenti correggono errori e falle di sicurezza e portano novità. Premi «Cerca aggiornamenti» per vedere cosa è disponibile, poi aggiorna i pacchetti APT (il sistema Debian e i suoi programmi), le app Flatpak o tutto insieme.
+Nessun errore trovato: il sistema non ha registrato errori in questo avvio.
+Possibili soluzioni
+Non ho una soluzione specifica per questi errori. Molti messaggi sono innocui se il computer funziona bene; se noti problemi, copia la riga dell'errore e cercala online.
+In base agli errori trovati ecco cosa puoi provare:
+(nessun output)
+MANUTENZIONE
+SISTEMA
+AMMINISTRATORE
+SICUREZZA E DATI
+AIUTO
+File temporanei
+File in /tmp e /var/tmp non modificati da più di 2 giorni (richiede password)
+Cache pacchetti APT
+Rimuove i .deb scaricati e non più necessari (richiede password)
+Pacchetti orfani
+apt autoremove --purge: dipendenze non più usate (richiede password)
+Cache dei browser
+Firefox, Chrome, Chromium, Brave. Chiudi i browser prima di pulire
+Cronologia e cookie dei browser
+Firefox, Chrome, Chromium: operazione irreversibile
+Cache della RAM
+Svuota page cache e buffer temporanei (richiede password)
+Log del journal
+Mantiene solo gli ultimi 7 giorni di log systemd (richiede password)
+Log obsoleti in /var/log
+File ruotati e compressi (.gz, .1, .old) (richiede password)
+Cache utente
+Contenuto di ~/.cache (miniature, cache delle app)
+Cestino
+File nel cestino dell'utente
+Database dpkg
+Nessun pacchetto in stato incoerente
+Dipendenze APT
+Nessuna dipendenza rotta
+Impossibile verificare senza privilegi: usa Correggi dipendenze rotte
+Configurazioni residue
+Nessuna configurazione orfana
+Servizi systemd
+Nessun servizio in errore
+Orologio di sistema
+Sincronizzato via NTP
+Non sincronizzato
+Riavvio
+Un aggiornamento richiede il riavvio del sistema
+Spazio su disco (/)
+Pacchetti bloccati
+Aggiornamenti microcode per processori Intel (sicurezza e stabilità)
+Aggiornamenti microcode per processori AMD (sicurezza e stabilità)
+Driver NVIDIA proprietario per la grafica 3D
+Firmware per schede video AMD/ATI
+Driver Vulkan (giochi e applicazioni 3D)
+Accelerazione video hardware Intel
+Firmware per schede di rete e Wi-Fi Realtek
+Firmware per Wi-Fi Atheros/Qualcomm
+Firmware per Wi-Fi Broadcom
+Firmware vari (Wi-Fi MediaTek/Ralink e altro)
+Firmware per Wi-Fi Intel
+Firmware per adattatori Wi-Fi Realtek
+Firmware per adattatori Wi-Fi Atheros
+Supporto Bluetooth
+Firmware per Bluetooth Realtek
+Firmware audio Intel Sound Open Firmware
+Firmware non liberi generici (consigliato per quasi tutti i computer)
+Scheda madre
+BIOS/UEFI
+Versione BIOS
+Data BIOS
+lsblk -dnP -o TRAN,SIZE,MODEL {} 2>/dev/null
+SSD NVMe
+Scheda SD / eMMC
+zRAM (memoria compressa)
+Disco virtuale
+HDD esterno USB (meccanico)
+HDD (disco meccanico)
+SSD / memoria Flash USB
+SSD SATA
+Tipo sconosciuto
+NetworkManager
+Gestisce la rete e il Wi-Fi
+networking
+Rete classica di Debian (file /etc/network/interfaces)
+ssh
+Accesso remoto al computer tramite SSH
+bluetooth
+ufw
+Firewall: protegge il PC dalla rete
+cups
+Gestione delle stampanti
+avahi-daemon
+Scoperta automatica dei dispositivi in rete
+cron
+Esecuzione di attività programmate
+docker
+Contenitori Docker
+smbd
+Condivisione file di Windows (Samba)
+Bilanciato (standard)
+Il computer regola da solo velocità e consumi: veloce quando serve, risparmia quando non fai nulla. È la scelta giusta per l'uso di tutti i giorni.
+; echo 'OK'
+Massima velocità sempre. Utile per giochi, montaggio video o lavori pesanti, ma la batteria si scarica molto più in fretta e il computer si scalda e fa più rumore. Meglio usarla con il caricabatterie collegato.
+Risparmio energetico (Powersave)
+Riduce la velocità del processore per consumare meno. La batteria dura di più e il computer resta più fresco, ma i programmi pesanti possono essere più lenti. Ideale quando sei in viaggio.
+Ripristina le impostazioni che il computer aveva prima di usare DebClean.
+Ultimi 100 eventi
+Solo errori
+Avvio corrente
+Messaggi del kernel
+Cartelle vuote
+Cartelle che non contengono nulla. Eliminarle non fa perdere dati e rende l'archivio più ordinato.
+File vuoti (0 byte)
+File che non contengono dati. Spesso sono residui di operazioni interrotte.
+Attenzione: alcuni programmi usano file vuoti di proposito. Controlla l'elenco e deseleziona quelli che vuoi tenere.
+cartelle vuote verranno eliminate definitivamente:
+file vuoti verranno eliminati definitivamente:
+Avvio silenzioso
+Schermata grafica di avvio
+Utile solo se hai problemi con la grafica
+Swap compresso in RAM
+Consigliato con driver NVIDIA proprietario
+Per sicurezza DebClean non salva la password di root: le operazioni privilegiate usano pkexec e il sistema chiede l'autorizzazione tramite la finestra di Polkit.
+Performance
+Origine
+ pacchetti rimossi hanno ancora file di configurazione
+ — usa la scheda Pulizia per liberare spazio
+In carica
+Scarica
+Carica completa
+Stato sconosciuto
+Online
+Offline
+PANORAMICA
+È la schermata iniziale. Mostra in un colpo d'occhio se il sistema è in buono stato, l'uso di CPU, RAM, swap e disco e il loro storico degli ultimi 60 secondi. «Ottimizza ora» esegue la pulizia con le voci già selezionate; le tessere portano alle funzioni principali.
+Libera spazio eliminando i file inutili: temporanei, cache di APT e dei browser, pacchetti orfani, log vecchi, cache utente e cestino. Spunta le voci, premi «Analizza» per vedere quanto spazio recuperi e poi «Pulisci selezionati». Le operazioni da amministratore chiedono la password una volta sola.
+La cancellazione di cronologia e cookie dei browser è irreversibile: chiudi prima i browser.
+Cerca nella tua cartella personale le cartelle vuote e i file da 0 byte. Vedi l'elenco completo, scegli cosa eliminare e confermi prima che venga cancellato qualcosa.
+Alcuni programmi usano file vuoti di proposito: controlla l'elenco prima di confermare.
+Solo per i notebook: sceglie come il processore usa l'energia. Bilanciato è per l'uso di tutti i giorni, Performance dà la massima velocità consumando di più, Powersave fa durare di più la batteria, Origine ripristina le impostazioni precedenti. Su un PC fisso la funzione non è disponibile.
+I servizi sono programmi che girano sempre in background (rete, SSH, Bluetooth, firewall...). Puoi verificare se un servizio è attivo, avviarlo o arrestarlo per la sessione corrente.
+Fermare servizi critici come networking o NetworkManager può togliere la connessione a Internet.
+Raccoglie gli strumenti per velocizzare il computer: analisi dell'avvio, regolazione della swappiness, TRIM per gli SSD, elenco dei processi più pesanti e «Ottimizza tutto» per una manutenzione completa in un colpo solo.
+Alcune operazioni richiedono i privilegi di amministratore.
+Mostra gli ultimi eventi e messaggi di sistema registrati da journalctl, con filtri per errori, avvio corrente e kernel. Serve a capire cosa è andato storto quando qualcosa non funziona.
+Controlla lo stato di salute del sistema (pacchetti, dipendenze, servizi, spazio, orologio...) e per ogni problema offre il pulsante «Correggi». «Correggi tutto» applica tutte le correzioni insieme; gli strumenti manuali riparano il database APT, le dipendenze e le chiavi e verificano l'integrità dei pacchetti.
+Le correzioni modificano pacchetti e servizi: leggi il problema prima di applicarle.
+Controlla se ci sono aggiornamenti per i pacchetti APT (il sistema Debian e i suoi programmi) e per le app Flatpak. Puoi aggiornare solo APT, solo Flatpak o tutto con un clic.
+Durante l'aggiornamento non spegnere il computer: alla fine potrebbe servire un riavvio.
+Sei schede: Info (sistema, memoria, dischi, rete), Hardware e rete (processore, scheda madre, modelli dei dischi, gateway), Memoria RAM (marca, tipo e velocità di ogni modulo), Scheda video (modello, driver, memoria video, monitor), Tutti i componenti (elenco completo del computer) e About. Serve a sapere esattamente che computer hai.
+Mostra il tipo di ogni disco (SSD, NVMe, HDD, USB). Analisi disco controlla la salute con SMART, File grandi trova i file pesanti e inutilizzati, Spazio disco calcola la dimensione delle cartelle e Stress test mette sotto sforzo CPU e RAM per scoprire instabilità.
+Lo stress test porta il computer al limite: salva il lavoro prima di avviarlo.
+Elenca i programmi in esecuzione con la CPU e la memoria che usano. «Termina» chiede al programma di chiudersi, «Kill» lo chiude con la forza se non risponde.
+Chiudere un processo di sistema può rendere instabile il computer.
+Elenca i pacchetti APT e le app Flatpak installati e permette di disinstallarli. Usa la ricerca per trovare subito quello che cerchi.
+La disinstallazione chiede conferma ma non si può annullare.
+Crea una zRAM, cioè una memoria compressa dentro la RAM, per evitare rallentamenti quando la memoria scarseggia. Scegli la dimensione con il cursore e premi «Ottimizza RAM»; «Disattiva zRAM» la rimuove.
+La configurazione vale fino al riavvio.
+Mostra le temperature dei sensori. Il pulsante «Attiva modalità di raffreddamento» limita la velocità del processore per produrre meno calore e far girare più piano le ventole; «Disattiva e ripristina» torna alla velocità normale.
+Controlla con tre spie il gateway (router), il DNS e la connessione a Internet. «Ripristina rete e Wi-Fi» riavvia NetworkManager per risolvere i problemi di connessione.
+La connessione cade per qualche secondo.
+Quattro schede: Kernel manager rimuove i kernel vecchi (quello in uso è protetto), Kernel e prestazioni regola governor e swappiness, Grub modifica i parametri di avvio con un'anteprima prima di salvare, Recovery offre strumenti di emergenza (audio, rete, ricostruzione e reinstallazione di GRUB, Flathub).
+Modificare GRUB può impedire l'avvio del computer: usa sempre l'anteprima e tieni un backup.
+Driver manager rileva l'hardware e propone i driver e i firmware da installare. App repository mostra e aggiunge le sorgenti software, Repository Manager abilita i Debian Backports e aggiorna gli elenchi dei pacchetti.
+Aggiungi solo repository di cui ti fidi.
+Elenca le applicazioni che partono automaticamente al login. Togli la spunta a quelle che non ti servono per ridurre i tempi di avvio; puoi riattivarle quando vuoi.
+Abilita o disabilita l'accesso del tuo utente a funzioni speciali: amministratore (sudo), porte seriali per Arduino e USB, VirtualBox e Docker.
+Servono un logout o un riavvio perché le modifiche diventino attive.
+Firewall UFW attiva o disattiva la protezione contro gli accessi non autorizzati dalla rete. Sicurezza avanzata elenca i servizi in ascolto, scansiona le porte locali e mostra i log del firewall.
+Disattivare il firewall espone di più il PC alla rete.
+File e cartelle copia i tuoi dati in una destinazione a scelta. Pacchetti di sistema salva l'elenco dei pacchetti e dei repository e li ripristina dopo una reinstallazione. Punti di ripristino crea e ripristina istantanee dell'intero sistema con Timeshift.
+Ripristinare un punto riporta il sistema indietro: le modifiche successive vanno perse.
+Sovrascrive più volte un file o una cartella con dati casuali e poi li elimina, in modo che non siano recuperabili. Scegli il numero di passaggi.
+È irreversibile; su SSD e file system con snapshot la sovrascrittura non dà garanzie complete.
+Mostra le operazioni eseguite da DebClean e gli errori del journal di sistema; se trova errori noti ti suggerisce come risolverli. Puoi mettere in pausa il registro o pulirlo.
+Qui scegli la lingua dell'interfaccia e attivi la pulizia rapida della cache utente all'avvio. DebClean non salva la password di root: usa pkexec e il sistema chiede l'autorizzazione quando serve.
+Questa schermata spiega ogni funzione di DebClean. Usa la ricerca per trovare subito l'argomento che ti interessa.
+Memoria RAM esaurita: il sistema ha chiuso dei programmi
+Chiudi i programmi che non usi e controlla i «Processi» più pesanti. Attiva la zRAM in «Ottimizza RAM» per avere più margine. Se succede spesso, il computer ha poca RAM per l'uso che ne fai.
+Disco pieno
+Libera spazio con «Pulizia» (anche «Pulizia avanzata») ed elimina i file grandi da «Disco» → «File grandi».
+Errori di lettura o scrittura del disco: il disco potrebbe essere in avaria
+Fai subito un backup dei dati importanti, poi controlla la salute del disco in «Disco» → «Analisi disco» → «Stato e attributi». Se il disco risulta danneggiato, valuta di sostituirlo.
+Un servizio non si è avviato
+Apri il «Fixer» e premi «Correggi» su «Servizi systemd», oppure in «Pulizia» → «Servizi di sistema» controlla lo stato del servizio e riavvialo.
+Un programma si è chiuso in modo anomalo (crash)
+Riavvia il programma. Se succede ancora, aggiornalo dalla scheda «Aggiornamenti» oppure reinstallalo da «App installate».
+Manca un firmware per una periferica (Wi-Fi, scheda video, audio...)
+Apri «Repository e driver», premi «Rileva hardware e driver» e installa i firmware consigliati. Poi riavvia il computer.
+Problemi con la connessione di rete
+Apri la scheda «Rete»: premi «Test diagnostico» e, se una spia è rossa, «Ripristina rete e Wi-Fi». Controlla anche il cavo o il segnale Wi-Fi.
+Il processore si surriscalda
+Pulisci dalla polvere le prese d'aria e le ventole. In «Temperature» attiva la «Modalità di raffreddamento» finché il problema non si risolve.
+Tentativi di accesso con password errata
+Se non sei stato tu, cambia la password e attiva il firewall in «Sicurezza e firewall». Se sei stato tu, puoi ignorare il messaggio.
+Un dispositivo USB non viene riconosciuto
+Prova un'altra porta USB o un altro cavo e collega il dispositivo direttamente al computer, senza hub.
+Avviso ACPI del BIOS (molto comune)
+Di solito è innocuo e si può ignorare se il computer funziona bene. Un aggiornamento del BIOS del produttore può eliminarlo.
+Problema con il Bluetooth
+In «Pulizia» → «Servizi di sistema» controlla il servizio bluetooth e avvialo; in «Repository e driver» installa i firmware consigliati.
+Problema con l'audio
+In «Kernel, Grub e Recovery» → «Recovery» premi «Riavvia audio». Se non basta, riavvia il computer.
+Problemi con i pacchetti installati
+Apri il «Fixer» e premi «Correggi tutto», oppure «Correggi dipendenze rotte» e «Riconfigura pacchetti».
+Errori della scheda video
+Installa i driver adatti in «Repository e driver» → «Driver manager» e aggiorna il sistema da «Aggiornamenti». Se il problema resta, prova ad avviare con un kernel diverso.
