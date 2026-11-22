@@ -379,13 +379,15 @@ impl App {
             ui,
             "Controlla se il sistema ha problemi (pacchetti rotti, servizi fermi, disco quasi pieno...). Il segno ✔ verde significa che va tutto bene; se vedi ⚠ o ✘ premi «Correggi» accanto al problema, oppure «Correggi tutto».",
         );
-        let all_fixes: String = self
+        
+        let fix_list: Vec<&str> = self
             .checks
             .iter()
             .filter(|c| c.status != health::Status::Ok)
             .filter_map(|c| c.fix)
-            .collect::<Vec<_>>()
-            .join("; ");
+            .collect();
+        let all_fixes: String = fix_list.join(" && ");
+        
         ui.horizontal(|ui| {
             if ui.add_enabled(!self.busy, egui::Button::new(t("🔄 Esegui controlli"))).clicked() {
                 self.spawn(ctx, |ch| ch.send(Msg::Checks(health::run_checks())));
@@ -431,7 +433,19 @@ impl App {
         if let Some(f) = fix_one {
             self.spawn(ctx, fix_job(f));
         }
+ui.add_space(8.0);
+    ui::card(ui, |ui| {
+        ui.label(egui::RichText::new(t("Risoluzione Errori APT e Chiavi GPG")).strong().color(ui::ACCENT).size(16.0));
+        ui.add_space(4.0);
+        ui.label(t("Rileva automaticamente le firme digitali mancanti (NO_PUBKEY) dai repository PPA di terze parti e le scarica dai server ufficiali per sbloccare gli aggiornamenti di sistema."));
+        ui.add_space(8.0);
 
+        if ui::primary_button(ui, t("Correggi chiavi GPG mancanti"), !self.busy).clicked() {
+            let script = crate::solutions::fix_missing_gpg_keys_script(); // <-- Modifica qui
+            let job = crate::cmd_job("fixer", script, true);
+            self.spawn(ctx, job);
+        }
+    });
         ui.separator();
         ui.heading(t("Strumenti di riparazione manuali"));
         ui.horizontal_wrapped(|ui| {
@@ -454,6 +468,34 @@ impl App {
                 ui, ctx, t("Verifica integrità pacchetti"), "fixer",
                 "if command -v debsums >/dev/null 2>&1; then debsums -s 2>&1 | head -60; else dpkg --verify 2>&1 | head -60; fi; echo '(fine verifica)'",
                 false, None,
+            );
+            self.run_btn(
+                ui, ctx, t("Controlla residui dpkg/rc"), "fixer",
+                "echo '=== Pacchetti in stato rc ==='; dpkg -l | awk '/^rc/{print $2, $3}' || true; \
+                 echo '=== File .dpkg-old / .dpkg-dist / .ucf-dist in /etc ==='; \
+                 find /etc \\( -name '*.dpkg-old' -o -name '*.dpkg-dist' -o -name '*.ucf-dist' \\) 2>/dev/null | head -100",
+                false, None,
+            );
+            self.run_btn(
+                ui, ctx, t("Pulisci residui dpkg/rc"), "fixer",
+                "RC_PKGS=$(dpkg -l | awk '/^rc/{print $2}'); \
+                 if [ -n \"$RC_PKGS\" ]; then dpkg --purge $RC_PKGS; else echo 'Nessun pacchetto in stato rc.'; fi; \
+                 find /etc \\( -name '*.dpkg-old' -o -name '*.dpkg-dist' -o -name '*.ucf-dist' \\) -print -delete 2>/dev/null || true",
+                true,
+                Some(t("Eliminare definitivamente i file di configurazione residui (.dpkg-old, .dpkg-dist, .ucf-dist) e purgare i pacchetti in stato rc?")),
+            );
+            self.run_btn(
+                ui, ctx, t("Mostra servizi falliti"), "fixer",
+                "systemctl --failed --no-pager --plain || true",
+                false, None,
+            );
+            self.run_btn(
+                ui, ctx, t("Riavvia servizi falliti"), "fixer",
+                "UNITS=$(systemctl --failed --no-legend --plain | awk '{print $1}'); \
+                 if [ -z \"$UNITS\" ]; then echo 'Nessuna unità systemd in stato failed.'; \
+                 else echo \"Riavvio unità: $UNITS\"; systemctl restart $UNITS; systemctl --failed --no-pager --plain || true; fi",
+                true,
+                Some(t("Riavviare tutte le unità systemd attualmente in stato failed?")),
             );
         });
         self.show_out(ui, "fixer", 260.0);
@@ -573,11 +615,18 @@ impl App {
         if !valid {
             ui.colored_label(ui::BAD, t("Caratteri non ammessi nei parametri."));
         }
+
+        let clean_grub = self.grub_line.trim();
         let script = format!(
             "cp -n /etc/default/grub /etc/default/grub.debclean.bak; \
-             sed -i 's|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"{}\"|' /etc/default/grub && update-grub",
-            self.grub_line.trim()
+             VAL={}; \
+             awk -v val=\"$VAL\" 'BEGIN{{done=0}} /^GRUB_CMDLINE_LINUX_DEFAULT=/{{\
+               print \"GRUB_CMDLINE_LINUX_DEFAULT=\\\"\" val \"\\\"\"; done=1; next}} \
+               {{print}} END{{if(!done) print \"GRUB_CMDLINE_LINUX_DEFAULT=\\\"\" val \"\\\"\"}}' \
+               /etc/default/grub > /etc/default/grub.tmp && mv /etc/default/grub.tmp /etc/default/grub && update-grub",
+            util::shq(clean_grub)
         );
+
         ui.horizontal(|ui| {
             ui.add_enabled_ui(valid, |ui| {
                 self.run_btn(
@@ -589,6 +638,16 @@ impl App {
                 self.grub_preview = grub_preview_text(&self.grub_line);
             }
             self.run_btn(ui, ctx, t("Aggiorna GRUB"), "grub", "update-grub", true, None);
+            let restore_script = "if [ -f /etc/default/grub.debclean.bak ]; then cp /etc/default/grub.debclean.bak /etc/default/grub && update-grub; else echo 'Nessun backup grub.debclean.bak trovato'; exit 1; fi";
+            self.run_btn(
+                ui,
+                ctx,
+                t("↩ Ripristina backup"),
+                "grub",
+                restore_script,
+                true,
+                Some(t("Ripristinare /etc/default/grub dal backup debclean.bak e aggiornare GRUB?")),
+            );
         });
         if !self.grub_preview.is_empty() {
             ui.label(egui::RichText::new(t("Anteprima delle modifiche (non è stato cambiato nulla)")).strong().size(18.0));
@@ -710,7 +769,24 @@ impl App {
             ui.label(egui::RichText::new(t("Premi «Rileva hardware e driver» per analizzare il computer.")).color(ui::TEXT_DIM));
             return;
         }
-
+let filter_id = egui::Id::new("debclean_drivers_filter");
+        let mut drv_filter = ui.data_mut(|d| d.get_temp::<usize>(filter_id).unwrap_or(0));
+        ui.horizontal(|ui| {
+            ui.label(t("Filtro rapido:"));
+            if ui.selectable_label(drv_filter == 0, t("Tutti")).clicked() {
+                drv_filter = 0;
+                ui.data_mut(|d| d.insert_temp(filter_id, drv_filter));
+            }
+            if ui.selectable_label(drv_filter == 1, t("Consigliati / non installati")).clicked() {
+                drv_filter = 1;
+                ui.data_mut(|d| d.insert_temp(filter_id, drv_filter));
+            }
+            if ui.selectable_label(drv_filter == 2, t("Già installati")).clicked() {
+                drv_filter = 2;
+                ui.data_mut(|d| d.insert_temp(filter_id, drv_filter));
+            }
+        });
+        ui.add_space(8.0);
         if !self.drv_hw.is_empty() {
             ui::card(ui, |ui| {
                 ui.label(egui::RichText::new(t("Hardware rilevato")).strong().size(20.0));
@@ -725,7 +801,17 @@ impl App {
 
         ui.label(egui::RichText::new(t("Driver proposti")).strong().size(20.0));
         ui.add_space(4.0);
+let mut shown_drv = 0usize;
         for d in self.drv.iter_mut() {
+            let matches = match drv_filter {
+                1 => d.recommended && !d.installed,
+                2 => d.installed,
+                _ => true,
+            };
+            if !matches {
+                continue;
+            }
+            shown_drv += 1;
             ui::card(ui, |ui| {
                 ui.horizontal(|ui| {
                     let enabled = d.available && !d.installed;
@@ -745,6 +831,9 @@ impl App {
                 ui.label(egui::RichText::new(format!("{}: {}", t("Hardware"), d.hw)).color(ui::TEXT_DIM));
             });
             ui.add_space(6.0);
+        }
+        if shown_drv == 0 {
+            ui.label(egui::RichText::new(t("Nessun driver corrisponde al filtro selezionato.")).color(ui::TEXT_DIM));
         }
 
         let missing = self.drv.iter().any(|d| !d.available && !d.installed);
@@ -795,9 +884,106 @@ impl App {
                 });
                 self.confirm = Some((tf("Installare {} pacchetti driver/firmware?", &[&n]), job));
             }
+            if ui
+                .add_enabled(
+                    !self.busy && self.drv.iter().any(|d| d.recommended && d.available && !d.installed),
+                    egui::Button::new(t("⭐ Seleziona consigliati")),
+                )
+                .clicked()
+            {
+                for d in self.drv.iter_mut() {
+                    if d.available && !d.installed {
+                        d.sel = d.recommended;
+                    }
+                }
+            }
+        });
+
+ui.add_space(10.0);
+        ui::card(ui, |ui| {
+            ui.label(
+                egui::RichText::new(t("Controllo moduli kernel / firmware caricati (lsmod)"))
+                    .strong()
+                    .size(18.0),
+            );
+            ui.add_space(4.0);
+            ui.label(
+                t("Verifica se un modulo specifico (es. nvidia, iwlwifi, btusb) è effettivamente caricato."),
+            );
+            ui.add_space(6.0);
+
+            let mod_id = egui::Id::new("debclean_lsmod_query");
+            let mut mod_query = ui.data_mut(|d| {
+                d.get_temp::<String>(mod_id).unwrap_or_else(|| "iwlwifi".to_string())
+            });
+
+            ui.horizontal(|ui| {
+                ui.label(t("Modulo:"));
+                if ui
+                    .add(
+                        egui::TextEdit::singleline(&mut mod_query)
+                            .hint_text("nvidia, iwlwifi, btusb...")
+                            .desired_width(220.0),
+                    )
+                    .changed()
+                {
+                    ui.data_mut(|d| d.insert_temp(mod_id, mod_query.clone()));
+                }
+            });
+
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
+                for preset in ["nvidia", "iwlwifi", "btusb"] {
+                    if ui.small_button(preset).clicked() {
+                        mod_query = preset.to_string();
+                        ui.data_mut(|d| d.insert_temp(mod_id, mod_query.clone()));
+                    }
+                }
+            });
+
+            let clean_mod: String = mod_query
+                .trim()
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+                .collect();
+
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                let target_script = if clean_mod.is_empty() {
+                    "lsmod | head -n 40".to_string()
+                } else {
+                    format!(
+                        "lsmod | awk 'NR==1 || tolower($1) ~ /^{}/ {{print}}'; \
+                         if ! lsmod | awk 'NR>1 && tolower($1) ~ /^{}/ {{found=1}} END {{exit !found}}'; then \
+                           echo 'Modulo non attualmente caricato.'; \
+                         fi",
+                        clean_mod.to_lowercase(),
+                        clean_mod.to_lowercase()
+                    )
+                };
+                self.run_btn(
+                    ui,
+                    ctx,
+                    t("Verifica modulo caricato"),
+                    "drivers_lsmod",
+                    &target_script,
+                    false,
+                    None,
+                );
+                self.run_btn(
+                    ui,
+                    ctx,
+                    t("Mostra tutti i moduli"),
+                    "drivers_lsmod",
+                    "lsmod",
+                    false,
+                    None,
+                );
+            });
+
+            self.show_out(ui, "drivers_lsmod", 160.0);
         });
     }
-
     // ----- Startup
 
 pub(crate) fn ui_startup(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -813,8 +999,31 @@ pub(crate) fn ui_startup(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         match self.sub {
             0 => {
                 ui.label(t("Disattiva le applicazioni avviate automaticamente al login per ridurre i tempi di avvio."));
+                let filter_id = egui::Id::new("debclean_startup_filter");
+                let mut filter_text = ui.data_mut(|d| {
+                    d.get_temp::<String>(filter_id).unwrap_or_default()
+                });
+                ui.horizontal(|ui| {
+                    ui.label(t("Filtra:"));
+                    if ui.add(egui::TextEdit::singleline(&mut filter_text).desired_width(240.0)).changed() {
+                        ui.data_mut(|d| d.insert_temp(filter_id, filter_text.clone()));
+                    }
+                    if !filter_text.is_empty() && ui.button(t("Pulisci")).clicked() {
+                        filter_text.clear();
+                        ui.data_mut(|d| d.insert_temp(filter_id, filter_text.clone()));
+                    }
+                });
+                let q = filter_text.trim().to_lowercase();
                 let mut toggle: Option<(String, bool)> = None;
+                let mut shown = 0usize;
                 for e in self.startup.iter() {
+                    if !q.is_empty()
+                        && !e.name.to_lowercase().contains(&q)
+                        && !e.file.to_lowercase().contains(&q)
+                    {
+                        continue;
+                    }
+                    shown += 1;
                     let mut en = e.enabled;
                     if ui.checkbox(&mut en, format!("{}    ({})", e.name, e.file)).changed() {
                         toggle = Some((e.file.clone(), en));
@@ -822,11 +1031,32 @@ pub(crate) fn ui_startup(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 }
                 if self.startup.is_empty() {
                     ui.label(t("Nessuna voce di avvio automatico trovata."));
+                } else if shown == 0 {
+                    ui.label(t("Nessuna voce corrisponde al filtro."));
+                }
+                ui.add_space(6.0);
+                if ui.button(t("🔄 Ricarica elenco")).clicked() {
+                    self.startup = read_startup();
                 }
                 // Se c'è un toggle da salvare, gestiscilo qui se era presente nel resto della funzione originale
+                
                 if let Some((file, val)) = toggle {
-                    // (mantieni qui la logica di salvataggio del toggle se era presente subito dopo)
+                    match set_startup(&file, val) {
+                        Ok(()) => {
+                            self.startup = read_startup();
+                            self.log.push_str(&format!(
+                                "✔ {}: {} ({})\n",
+                                if val { t("Abilitato") } else { t("Disabilitato") },
+                                file,
+                                if val { "attivo" } else { "disattivo" }
+                            ));
+                        }
+                        Err(e) => {
+                            self.log.push_str(&format!("✘ {}: {e}\n", t("Errore avvio automatico")));
+                        }
+                    }
                 }
+                
             }
             1 => {
                 // Chiamata richiesta da Google AI Studio
@@ -858,6 +1088,14 @@ pub(crate) fn ui_startup(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
             } else if !g.want && g.member {
                 cmds.push(format!("gpasswd -d {} {}", util::shq(&user), g.name));
             }
+        }
+        let changing_sudo = self.groups.iter().any(|g| g.name == "sudo" && g.want != g.member);
+        if changing_sudo {
+            ui.add_space(4.0);
+            ui.colored_label(
+                ui::WARN,
+                t("⚠ Attenzione: stai modificando il gruppo sudo (privilegi di amministratore). Controlla bene prima di confermare."),
+            );
         }
         ui.horizontal(|ui| {
             if ui.add_enabled(!self.busy && !cmds.is_empty(), egui::Button::new(t("✔ Applica modifiche"))).clicked() {

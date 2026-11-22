@@ -123,7 +123,7 @@ pub fn run_checks() -> Vec<Check> {
                 "Pacchetti bloccati",
                 Status::Warn,
                 format!("In hold: {}", o.split_whitespace().collect::<Vec<_>>().join(", ")),
-                None,
+                Some("apt-mark showhold | awk '{print $1 \" install\"}' | dpkg --set-selections"),
             ));
         }
     }

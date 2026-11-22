@@ -3,23 +3,47 @@ use crate::{ui, util, App, Job, Msg};
 use eframe::egui;
 use std::fs;
 use std::path::Path;
+use crate::cleaner;
 
 /// Salva (una sola volta) governor e profilo energetico originali, per poterli ripristinare.
 pub const POWER_SAVE_ORIG: &str = "[ -f /var/lib/debclean/power_orig ] || { mkdir -p /var/lib/debclean; \
-cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor > /var/lib/debclean/power_orig 2>/dev/null; \
-powerprofilesctl get > /var/lib/debclean/power_profile_orig 2>/dev/null; }; ";
+[ -r /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor ] && cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor > /var/lib/debclean/power_orig 2>/dev/null || :; \
+[ -r /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference ] && cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference > /var/lib/debclean/epp_orig 2>/dev/null || :; \
+command -v powerprofilesctl >/dev/null 2>&1 && powerprofilesctl get > /var/lib/debclean/power_profile_orig 2>/dev/null || :; }; ";
+///////-------------------------
+const SYSFS_GOV_BALANCED: &str = "avail=/sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors; \
+g=\"\"; \
+if [ -r \"$avail\" ]; then \
+  for c in schedutil ondemand conservative powersave performance; do \
+    if grep -qw \"$c\" \"$avail\"; then g=\"$c\"; break; fi; \
+  done; \
+else \
+  g=\"schedutil\"; \
+fi; \
+if [ -n \"$g\" ]; then \
+  for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do \
+    [ -e \"$f\" ] && [ -w \"$f\" ] && { printf '%s\n' \"$g\" > \"$f\" 2>/dev/null || true; }; \
+  done; \
+fi; \
+for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do \
+  [ -e \"$f\" ] && [ -w \"$f\" ] && { printf '%s\n' balance_performance > \"$f\" 2>/dev/null || true; }; \
+done";
 
-const SYSFS_GOV_BALANCED: &str = "g=powersave; for c in schedutil ondemand conservative; do \
-grep -qw $c /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors && { g=$c; break; }; done; \
-for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo $g > $f; done; \
-for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do echo balance_performance > $f 2>/dev/null; done";
+const SYSFS_GOV_PERF: &str = "for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do \
+  [ -e \"$f\" ] && [ -w \"$f\" ] && { printf '%s\n' performance > \"$f\" 2>/dev/null || true; }; \
+done; \
+for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do \
+  [ -e \"$f\" ] && [ -w \"$f\" ] && { printf '%s\n' performance > \"$f\" 2>/dev/null || true; }; \
+done";
 
-const SYSFS_GOV_PERF: &str = "for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > $f; done; \
-for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do echo performance > $f 2>/dev/null; done";
+const SYSFS_GOV_SAVE: &str = "for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do \
+  [ -e \"$f\" ] && [ -w \"$f\" ] && { printf '%s\n' powersave > \"$f\" 2>/dev/null || true; }; \
+done; \
+for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do \
+  [ -e \"$f\" ] && [ -w \"$f\" ] && { printf '%s\n' power > \"$f\" 2>/dev/null || true; }; \
+done";
 
-const SYSFS_GOV_SAVE: &str = "for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo powersave > $f; done; \
-for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do echo power > $f 2>/dev/null; done";
-
+/////-------------
 const SERVICES: [(&str, &str); 10] = [
     ("NetworkManager", "Gestisce la rete e il Wi-Fi"),
     ("networking", "Rete classica di Debian (file /etc/network/interfaces)"),
@@ -51,6 +75,63 @@ fn battery() -> Option<(String, String)> {
             let cap = read_trim(&format!("{base}/capacity"));
             let status = read_trim(&format!("{base}/status"));
             return Some((cap, status));
+        }
+    }
+    None
+}
+#[derive(Clone, Debug)]
+struct BatteryHealth {
+    name: String,
+    health_pct: Option<f64>,
+    design_wh: Option<f64>,
+    full_wh: Option<f64>,
+    cycles: Option<u64>,
+}
+
+fn read_u64_trim(p: &str) -> Option<u64> {
+    fs::read_to_string(p).ok()?.trim().parse::<u64>().ok()
+}
+
+fn battery_health() -> Option<BatteryHealth> {
+    for e in fs::read_dir("/sys/class/power_supply").ok()?.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        if name.starts_with("BAT") {
+            let base = format!("/sys/class/power_supply/{name}");
+            let cycles = read_u64_trim(&format!("{base}/cycle_count")).filter(|&c| c > 0);
+            let volt_v = read_u64_trim(&format!("{base}/voltage_now"))
+                .or_else(|| read_u64_trim(&format!("{base}/voltage_min_design")))
+                .map(|v| v as f64 / 1_000_000.0);
+
+            let (design_wh, full_wh) = if let (Some(ed), Some(ef)) = (
+                read_u64_trim(&format!("{base}/energy_full_design")),
+                read_u64_trim(&format!("{base}/energy_full")),
+            ) {
+                (Some(ed as f64 / 1_000_000.0), Some(ef as f64 / 1_000_000.0))
+            } else if let (Some(cd), Some(cf), Some(v)) = (
+                read_u64_trim(&format!("{base}/charge_full_design")),
+                read_u64_trim(&format!("{base}/charge_full")),
+                volt_v,
+            ) {
+                (
+                    Some((cd as f64 / 1_000_000.0) * v),
+                    Some((cf as f64 / 1_000_000.0) * v),
+                )
+            } else {
+                (None, None)
+            };
+
+            let health_pct = match (design_wh, full_wh) {
+                (Some(d), Some(f)) if d > 0.0 => Some(((f / d) * 100.0).clamp(0.0, 100.0)),
+                _ => None,
+            };
+
+            return Some(BatteryHealth {
+                name,
+                health_pct,
+                design_wh,
+                full_wh,
+                cycles,
+            });
         }
     }
     None
@@ -148,6 +229,29 @@ impl App {
         self.found_card(ui, ctx, true);
         ui.add_space(10.0);
         self.found_card(ui, ctx, false);
+        ui.add_space(10.0);
+        self.rc_card(ui, ctx);
+        self.flatpak_card(ui, ctx);
+        self.orphan_configs_card(ui, ctx);
+        
+        ui.add_space(10.0);
+        ui::card(ui, |ui| {
+            ui.label(egui::RichText::new(t("Ottimizza database SQLite browser")).strong().size(20.0));
+            ui.label(t("Esegue VACUUM e REINDEX sui database interni dei browser (Firefox, Chrome, Chromium, Brave) verificando prima che siano chiusi. Velocizza l'avvio e la barra degli indirizzi senza cancellare cronologia o segnalibri."));
+        });
+        ui.horizontal(|ui| {
+            if ui.add_enabled(!self.busy, egui::Button::new(t("Ottimizza database SQLite browser"))).clicked() {
+                self.spawn(ctx, |ch| {
+                    ch.send(Msg::Log("▶ Avvio ottimizzazione database SQLite dei browser...".into()));
+                    for line in cleaner::optimize_browser_databases() {
+                        ch.send(Msg::Log(line));
+                    }
+                });
+            }
+            if self.busy {
+                ui.spinner();
+            }
+        });
     }
 
     fn found_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, dirs: bool) {
@@ -230,6 +334,218 @@ impl App {
         }
     }
 
+fn rc_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui::card(ui, |ui| {
+            ui.label(egui::RichText::new(t("Residui di configurazione pacchetti (rc)")).strong().size(20.0));
+            ui.label(t("Pacchetti già disinstallati in passato che mantengono vecchi file di configurazione sul disco. La loro rimozione pulisce il sistema in sicurezza."));
+        });
+        ui.horizontal(|ui| {
+            if ui.add_enabled(!self.busy, egui::Button::new(t("🔍 Cerca residui rc"))).clicked() {
+                self.spawn(ctx, move |ch| {
+                    let (_, output) = util::run_shell("dpkg -l | awk '/^rc/ {print $2}'", false);
+                    let list: Vec<(String, bool)> = output.lines()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .map(|s| (s, true))
+                        .collect();
+                    ch.send(Msg::Log(format!("✔ Trovati {} pacchetti rc", list.len())));
+                    ch.send(Msg::RcPkgs(list));
+                });
+            }
+            if self.busy {
+                ui.spinner();
+            }
+        });
+
+        if !self.rc_pkgs.is_empty() {
+            ui.horizontal(|ui| {
+                let count = self.rc_pkgs.iter().filter(|(_, sel)| *sel).count();
+                ui.label(format!("{}: {} / {}", t("Selezionati"), count, self.rc_pkgs.len()));
+                if ui.small_button(t("Seleziona tutto")).clicked() {
+                    for (_, sel) in &mut self.rc_pkgs {
+                        *sel = true;
+                    }
+                }
+                if ui.small_button(t("Deseleziona tutto")).clicked() {
+                    for (_, sel) in &mut self.rc_pkgs {
+                        *sel = false;
+                    }
+                }
+            });
+
+            egui::ScrollArea::vertical().id_source("rc_pkgs_scroll").max_height(200.0).show(ui, |ui| {
+                for (pkg, sel) in &mut self.rc_pkgs {
+                    ui.checkbox(sel, pkg.clone());
+                }
+            });
+
+            let count = self.rc_pkgs.iter().filter(|(_, sel)| *sel).count();
+            if ui::primary_button(ui, t("Elimina selezionati"), !self.busy && count > 0).clicked() {
+                let pkgs: Vec<String> = self.rc_pkgs.iter().filter(|(_, sel)| *sel).map(|(p, _)| p.clone()).collect();
+                let joined = pkgs.join(" ");
+                let script = format!("apt-get purge -y {joined} && echo 'Pulizia pacchetti rc completata'");
+                let count_str = count.to_string();
+                let job: Job = Box::new(move |ch| {
+                    ch.send(Msg::Log(format!("▶ Purgatura di {} pacchetti rc...", pkgs.len())));
+                    let (ok, out) = util::run_shell(&script, true);
+                    let mark = if ok { "✔" } else { "✘" };
+                    ch.send(Msg::Log(format!("{mark} {}", util::tail(out.trim(), 3).replace('\n', " | "))));
+                    let (_, output) = util::run_shell("dpkg -l | awk '/^rc/ {print $2}'", false);
+                    let list: Vec<(String, bool)> = output.lines()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .map(|s| (s, true))
+                        .collect();
+                    ch.send(Msg::RcPkgs(list));
+                });
+                self.confirm = Some((format!("Eliminare definitivamente i file di configurazione di {} pacchetti?", count_str), job));
+            }
+        }
+    }
+
+fn flatpak_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui::card(ui, |ui| {
+            ui.label(egui::RichText::new(t("Runtime Flatpak inutilizzati")).strong().size(20.0));
+            ui.label(t("Librerie e ambienti di esecuzione di Flatpak che non sono più necessari ad alcuna applicazione installata. Rimuoverli libera spazio su disco in sicurezza."));
+        });
+        ui.horizontal(|ui| {
+            if ui.add_enabled(!self.busy, egui::Button::new(t("🔍 Cerca runtime Flatpak inutilizzati"))).clicked() {
+                self.spawn(ctx, move |ch| {
+                    let (_, output) = util::run_shell("flatpak --version >/dev/null 2>&1 && flatpak uninstall --unused --assumeno 2>/dev/null || echo ''", false);
+                    let list: Vec<(String, bool)> = output.lines()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty() && (s.contains('/') || s.starts_with("org.") || s.starts_with("com.")))
+                        .map(|s| (s, true))
+                        .collect();
+                    ch.send(Msg::Log(format!("✔ Trovati {} elementi Flatpak inutilizzati", list.len())));
+                    ch.send(Msg::FlatpakUnused(list));
+                });
+            }
+            if self.busy {
+                ui.spinner();
+            }
+        });
+
+        if !self.flatpak_unused.is_empty() {
+            ui.horizontal(|ui| {
+                let count = self.flatpak_unused.iter().filter(|(_, sel)| *sel).count();
+                ui.label(format!("{}: {} / {}", t("Selezionati"), count, self.flatpak_unused.len()));
+                if ui.small_button(t("Seleziona tutto")).clicked() {
+                    for (_, sel) in &mut self.flatpak_unused { *sel = true; }
+                }
+                if ui.small_button(t("Deseleziona tutto")).clicked() {
+                    for (_, sel) in &mut self.flatpak_unused { *sel = false; }
+                }
+            });
+
+            egui::ScrollArea::vertical().id_source("flatpak_scroll").max_height(180.0).show(ui, |ui| {
+                for (pkg, sel) in &mut self.flatpak_unused {
+                    ui.checkbox(sel, pkg.clone());
+                }
+            });
+
+            let count = self.flatpak_unused.iter().filter(|(_, sel)| *sel).count();
+            if ui::primary_button(ui, t("Disinstalla selezionati"), !self.busy && count > 0).clicked() {
+                let pkgs: Vec<String> = self.flatpak_unused.iter().filter(|(_, sel)| *sel).map(|(p, _)| p.clone()).collect();
+                let joined = pkgs.join(" ");
+                let script = format!("flatpak uninstall -y {joined} && echo 'Pulizia Flatpak completata'");
+                let count_str = count.to_string();
+                let job: Job = Box::new(move |ch| {
+                    ch.send(Msg::Log(format!("▶ Rimozione di {} elementi Flatpak...", pkgs.len())));
+                    let (ok, out) = util::run_shell(&script, true);
+                    let mark = if ok { "✔" } else { "✘" };
+                    ch.send(Msg::Log(format!("{mark} {}", util::tail(out.trim(), 3).replace('\n', " | "))));
+                    
+                    let (_, output) = util::run_shell("flatpak uninstall --unused --assumeno 2>/dev/null || echo ''", false);
+                    let list: Vec<(String, bool)> = output.lines()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty() && (s.contains('/') || s.starts_with("org.") || s.starts_with("com.")))
+                        .map(|s| (s, true))
+                        .collect();
+                    ch.send(Msg::FlatpakUnused(list));
+                });
+                self.confirm = Some((format!("Disinstallare permanentemente questi {} elementi Flatpak?", count_str), job));
+            }
+        }
+    }
+
+fn orphan_configs_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui::card(ui, |ui| {
+            ui.label(egui::RichText::new(t("Configurazioni utente orfane")).strong().size(20.0));
+            ui.label(t("Cartelle di configurazione in ~/.config appartenenti a programmi che non sono più installati sul computer."));
+            ui.colored_label(ui::WARN, t("Attenzione: eliminare una cartella in ~/.config può far perdere impostazioni o preferiti dell'applicazione."));
+        });
+        
+        ui.horizontal(|ui| {
+            if ui.add_enabled(!self.busy, egui::Button::new(t("🔍 Cerca configurazioni orfane"))).clicked() {
+                self.spawn(ctx, move |ch| {
+                    let home = util::home();
+                    let config_dir = format!("{home}/.config");
+                    let mut found = Vec::new();
+                    
+                    if let Ok(entries) = std::fs::read_dir(config_dir) {
+                        for entry in entries.flatten() {
+                            if let Ok(name) = entry.file_name().into_string() {
+                                let path = entry.path();
+                                if path.is_dir() {
+                                    let check_script = format!(
+                                        "dpkg -l {name} 2>/dev/null | grep -q '^ii' || command -v {name} >/dev/null 2>&1 || flatpak list --app 2>/dev/null | grep -qi {name}",
+                                        name = util::shq(&name)
+                                    );
+                                    let (installed, _) = util::run_shell(&check_script, false);
+                                    if !installed {
+                                        found.push((path, false)); // PathBuf preservato correttamente
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    let _ = ch.send(Msg::Log(format!("✔ Trovate {} cartelle di configurazione orfane", found.len())));
+                    let _ = ch.send(Msg::OrphanConfigs(found));
+                });
+            }
+            if self.busy {
+                ui.spinner();
+            }
+        });
+
+        if !self.orphan_configs.is_empty() {
+            ui.horizontal(|ui| {
+                let count = self.orphan_configs.iter().filter(|(_, sel)| *sel).count();
+                ui.label(format!("{}: {} / {}", t("Selezionati"), count, self.orphan_configs.len()));
+                if ui.small_button(t("Seleziona tutto")).clicked() {
+                    for (_, sel) in &mut self.orphan_configs { *sel = true; }
+                }
+                if ui.small_button(t("Deseleziona tutto")).clicked() {
+                    for (_, sel) in &mut self.orphan_configs { *sel = false; }
+                }
+            });
+
+            egui::ScrollArea::vertical().id_source("orphan_configs_scroll").max_height(180.0).show(ui, |ui| {
+                for (path, sel) in &mut self.orphan_configs {
+                    ui.checkbox(sel, path.to_string_lossy().as_ref()); // Conversione PathBuf -> &str per la checkbox
+                }
+            });
+
+            let count = self.orphan_configs.iter().filter(|(_, sel)| *sel).count();
+            if ui::primary_button(ui, t("Elimina selezionati"), !self.busy && count > 0).clicked() {
+                let paths: Vec<std::path::PathBuf> = self.orphan_configs.iter().filter(|(_, sel)| *sel).map(|(p, _)| p.clone()).collect(); // Vettore di PathBuf
+                let count_str = count.to_string();
+                let job: Job = Box::new(move |ch| {
+                    let mut ok_count = 0;
+                    for p in &paths {
+                        if std::fs::remove_dir_all(p).is_ok() {
+                            ok_count += 1;
+                        }
+                    }
+                    let _ = ch.send(Msg::Log(format!("✔ Eliminate {ok_count} cartelle di configurazione orfane")));
+                    let _ = ch.send(Msg::OrphanConfigs(Vec::new()));
+                });
+                self.confirm = Some((format!("Eliminare definitivamente le cartelle di configurazione di questi {} elementi?", count_str), job));
+            }
+        }
+    }
+
     // ------------------------------------------------------------ Risparmio energetico
     fn power_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.label(
@@ -264,6 +580,43 @@ impl App {
                 ui.label(format!("{}: {}", t("Modalità attuale del processore"), gov));
             }
         });
+        
+        if let Some(bh) = battery_health() {
+            ui.add_space(6.0);
+            ui::card(ui, |ui| {
+                ui.label(
+                    egui::RichText::new(format!("{} ({})", t("Salute e usura batteria"), bh.name))
+                        .strong()
+                        .size(18.0),
+                );
+                if let Some(h) = bh.health_pct {
+                    let (giudizio, col) = if h >= 85.0 {
+                        (t("Ottima"), ui::GOOD)
+                    } else if h >= 70.0 {
+                        (t("Discreta / normale usura"), ui::WARN)
+                    } else {
+                        (t("Usurata o degradata (es. fermo in magazzino)"), egui::Color32::from_rgb(230, 70, 70))
+                    };
+                    ui.colored_label(
+                        col,
+                        format!("{}: {:.1}% — {}", t("Salute reale"), h, giudizio),
+                    );
+                }
+                if let (Some(d), Some(f)) = (bh.design_wh, bh.full_wh) {
+                    ui.label(format!(
+                        "{}: {:.2} Wh / {:.2} Wh {}",
+                        t("Capacità massima"),
+                        f,
+                        d,
+                        t("originali")
+                    ));
+                }
+                if let Some(c) = bh.cycles {
+                    ui.label(format!("{}: {}", t("Cicli di carica"), c));
+                }
+            });
+        }
+        
         ui.add_space(8.0);
 
         let pp = |profile: &str, sysfs: &str| -> String {
@@ -290,10 +643,24 @@ impl App {
             (
                 "Origine",
                 "Ripristina le impostazioni che il computer aveva prima di usare DebClean.",
-                format!(
-                    "if [ -f /var/lib/debclean/power_orig ]; then \
-                     if [ -s /var/lib/debclean/power_profile_orig ] && command -v powerprofilesctl >/dev/null 2>&1; then powerprofilesctl set \"$(cat /var/lib/debclean/power_profile_orig)\"; fi; \
-                     for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do cat /var/lib/debclean/power_orig > $f; done; echo 'OK'; \
+format!(
+                    "if [ -f /var/lib/debclean/power_orig ] || [ -s /var/lib/debclean/power_profile_orig ] || [ -s /var/lib/debclean/epp_orig ]; then \
+                     if [ -s /var/lib/debclean/power_profile_orig ] && command -v powerprofilesctl >/dev/null 2>&1; then \
+                       powerprofilesctl set \"$(cat /var/lib/debclean/power_profile_orig)\" 2>/dev/null || true; \
+                     fi; \
+                     if [ -s /var/lib/debclean/power_orig ]; then \
+                       orig_gov=\"$(cat /var/lib/debclean/power_orig)\"; \
+                       for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do \
+                         [ -e \"$f\" ] && [ -w \"$f\" ] && {{ printf '%s\\n' \"$orig_gov\" > \"$f\" 2>/dev/null || true; }}; \
+                       done; \
+                     fi; \
+                     if [ -s /var/lib/debclean/epp_orig ]; then \
+                       orig_epp=\"$(cat /var/lib/debclean/epp_orig)\"; \
+                       for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do \
+                         [ -e \"$f\" ] && [ -w \"$f\" ] && {{ printf '%s\\n' \"$orig_epp\" > \"$f\" 2>/dev/null || true; }}; \
+                       done; \
+                     fi; \
+                     echo 'OK'; \
                      else echo 'Nessuna impostazione originale salvata: non hai ancora cambiato profilo.'; fi"
                 ),
             ),
@@ -459,6 +826,6 @@ impl App {
             }
         });
         self.show_out(ui, "syslog", 460.0);
-        self.solutions_ui(ui, "syslog", false);
+        self.solutions_ui(ui, ctx, "syslog", false);
     }
 }

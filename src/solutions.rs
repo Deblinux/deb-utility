@@ -1,9 +1,7 @@
 use crate::i18n::t;
-use crate::{ui, App};
+use crate::{ui, util, App};
 use eframe::egui;
 
-/// Frasi (in minuscolo) da cercare in una riga del log. Una regola scatta se TUTTE le parole
-/// di almeno una delle sue alternative compaiono nella stessa riga.
 const TOKENS: &[&[&[&str]]] = &[
     &[&["out of memory"], &["oom-killer"], &["oom_reaper"]],
     &[&["no space left on device"], &["disk full"], &["not enough free space"]],
@@ -22,8 +20,6 @@ const TOKENS: &[&[&[&str]]] = &[
     &[&["gpu hang"], &["gpu fault"], &["amdgpu", "error"], &["nouveau", "error"], &["drm", "error"]],
 ];
 
-// SOLUTIONS-BEGIN
-/// (problema, soluzione): stesso ordine di TOKENS.
 const TEXTS: &[(&str, &str)] = &[
     (
         "Memoria RAM esaurita: il sistema ha chiuso dei programmi",
@@ -86,7 +82,6 @@ const TEXTS: &[(&str, &str)] = &[
         "Installa i driver adatti in «Repository e driver» → «Driver manager» e aggiorna il sistema da «Aggiornamenti». Se il problema resta, prova ad avviare con un kernel diverso.",
     ),
 ];
-// SOLUTIONS-END
 
 const _: () = assert!(TOKENS.len() == TEXTS.len());
 
@@ -102,10 +97,63 @@ fn matching(out: &str) -> Vec<&'static (&'static str, &'static str)> {
     hits
 }
 
+pub struct CrashFixOption {
+    pub problem_title: &'static str,
+    pub explanation: &'static str,
+    pub fix_label: &'static str,
+    pub fix_script: &'static str,
+    pub needs_root: bool,
+}
+
+pub fn get_active_fixes(out: &str) -> Vec<CrashFixOption> {
+    let lines: Vec<String> = out.lines().map(|l| l.to_lowercase()).collect();
+    let mut fixes = Vec::new();
+
+    if lines.iter().any(|l| l.contains("out of memory") || l.contains("oom-killer")) {
+        fixes.push(CrashFixOption {
+            problem_title: "Memoria RAM esaurita: il sistema ha chiuso dei programmi",
+            explanation: "Il kernel ha attivato l'OOM Killer. Ottimizziamo la swappiness e liberiamo la cache.",
+            fix_label: "Ottimizza RAM e Swappiness",
+            fix_script: "sync; echo 3 > /proc/sys/vm/drop_caches; sysctl -w vm.swappiness=20 && echo 'vm.swappiness=20' > /etc/sysctl.d/99-debclean-oom.conf && echo '✔ Memoria ottimizzata'",
+            needs_root: true,
+        });
+    }
+
+    if lines.iter().any(|l| l.contains("failed to start") || l.contains("entered failed state")) {
+        fixes.push(CrashFixOption {
+            problem_title: "Un servizio di sistema non si è avviato",
+            explanation: "Uno o più servizi systemd sono in errore. Possiamo azzerare lo stato di errore.",
+            fix_label: "Resetta servizi systemd falliti",
+            fix_script: "systemctl reset-failed && echo '✔ Stato servizi falliti resettato'",
+            needs_root: true,
+        });
+    }
+
+    if lines.iter().any(|l| l.contains("failed to load firmware") || l.contains("firmware: failed")) {
+        fixes.push(CrashFixOption {
+            problem_title: "Manca un firmware per una periferica",
+            explanation: "Il kernel non trova i binari di alcune periferiche. Aggiorniamo i pacchetti firmware.",
+            fix_label: "Installa/aggiorna pacchetti firmware",
+            fix_script: "apt-get update && apt-get install -y firmware-linux firmware-misc-nonfree && echo '✔ Firmware aggiornati'",
+            needs_root: true,
+        });
+    }
+
+    if lines.iter().any(|l| l.contains("dpkg") && (l.contains("error") || l.contains("interrupted"))) {
+        fixes.push(CrashFixOption {
+            problem_title: "Problemi con i pacchetti installati (DPKG/APT bloccato)",
+            explanation: "Il gestore pacchetti è rimasto bloccato da un'installazione interrotta.",
+            fix_label: "Sblocca e ripara database pacchetti",
+            fix_script: "rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock && dpkg --configure -a && apt-get install -f -y && echo '✔ DPKG riparato'",
+            needs_root: true,
+        });
+    }
+
+    fixes
+}
+
 impl App {
-    /// Mostra sotto un elenco di log le possibili soluzioni agli errori trovati.
-    /// `report_ok`: se true, dice anche quando non ci sono errori.
-    pub(crate) fn solutions_ui(&self, ui: &mut egui::Ui, key: &str, report_ok: bool) {
+    pub(crate) fn solutions_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, key: &'static str, report_ok: bool) {
         let Some(out) = self.out.get(key) else { return };
         let has_errors = out.lines().any(|l| {
             let l = l.trim();
@@ -125,10 +173,41 @@ impl App {
             return;
         }
         let hits = matching(out);
-        if hits.is_empty() && !report_ok {
+        let active_fixes = get_active_fixes(out);
+
+        if hits.is_empty() && active_fixes.is_empty() && !report_ok {
             return;
         }
+
         ui.add_space(8.0);
+
+        // Sezione Pulsanti di Correzione Automatica
+        if !active_fixes.is_empty() {
+            ui::card(ui, |ui| {
+                ui.label(egui::RichText::new(t("Assistente Correzione Crash & Errori")).strong().size(19.0).color(ui::WARN));
+                ui.label(t("In base agli errori riscontrati nei log, DebClean può applicare le seguenti correzioni automatiche:"));
+                
+                for fix in active_fixes {
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new(format!("• {}", t(fix.problem_title))).strong().size(16.0));
+                    ui.label(t(fix.explanation));
+                    ui.add_space(4.0);
+                    
+                    self.run_btn(
+                        ui,
+                        ctx,
+                        t(fix.fix_label),
+                        key,
+                        fix.fix_script,
+                        fix.needs_root,
+                        Some(t("Vuoi applicare questa correzione automatica al sistema?")),
+                    );
+                }
+            });
+            ui.add_space(8.0);
+        }
+
+        // Sezione Soluzioni Testuali Consigliate
         ui::card(ui, |ui| {
             ui.label(egui::RichText::new(t("Possibili soluzioni")).strong().size(19.0));
             if hits.is_empty() {
@@ -143,4 +222,23 @@ impl App {
             }
         });
     }
+}
+
+pub fn fix_missing_gpg_keys_script() -> String {
+    r#"
+    echo "▶ Analizzo i repository alla ricerca di chiavi GPG mancanti (NO_PUBKEY)..."
+    MISSING_KEYS=$(sudo apt update 2>&1 | grep -o 'NO_PUBKEY [A-F0-9]*' | awk '{print $2}' | sort -u)
+
+    if [ -z "$MISSING_KEYS" ]; then
+        echo "✔ Nessuna chiave GPG mancante rilevata nell'ultimo aggiornamento."
+    else
+        for key in $MISSING_KEYS; do
+            echo "🔑 Chiave mancante trovata: $key. Recupero in corso..."
+            sudo gpg --no-default-keyring --keyring /etc/apt/trusted.gpg.d/debclean-fixed.gpg --keyserver keyserver.ubuntu.com --recv-keys "$key"
+        done
+        echo "▶ Aggiornamento indici APT con le nuove chiavi..."
+        sudo apt update
+        echo "✔ Tutte le chiavi GPG sono state ripristinate con successo!"
+    fi
+    "#.to_string()
 }

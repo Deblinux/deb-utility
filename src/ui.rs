@@ -5,9 +5,6 @@ use std::collections::VecDeque;
 use std::f32::consts::{PI, TAU};
 
 pub const ACCENT: Color32 = Color32::from_rgb(0, 196, 168);
-pub const SIDEBAR_BG: Color32 = Color32::from_rgb(16, 21, 29);
-pub const CONTENT_BG: Color32 = Color32::from_rgb(25, 31, 42);
-pub const CARD_BG: Color32 = Color32::from_rgb(36, 44, 58);
 pub const TEXT: Color32 = Color32::from_rgb(238, 242, 248);
 pub const TEXT_DIM: Color32 = Color32::from_rgb(172, 183, 199);
 pub const BTN_BLUE: Color32 = Color32::from_rgb(37, 99, 235);
@@ -20,22 +17,54 @@ pub const BAD: Color32 = Color32::from_rgb(232, 72, 72);
 
 pub const HIST_LEN: usize = 60;
 
-pub fn apply_theme(ctx: &egui::Context) {
-    let mut v = egui::Visuals::dark();
-    v.panel_fill = CONTENT_BG;
-    v.window_fill = CARD_BG;
-    v.extreme_bg_color = Color32::from_rgb(14, 28, 58); // sfondo delle barre di avanzamento e dei campi di testo
+// Funzioni di sfondo dinamiche in base al tema
+pub fn sidebar_bg(ctx: &egui::Context) -> Color32 {
+    if ctx.style().visuals.dark_mode {
+        Color32::from_rgb(16, 21, 29)
+    } else {
+        Color32::from_rgb(230, 234, 240)
+    }
+}
+
+pub fn content_bg(ctx: &egui::Context) -> Color32 {
+    if ctx.style().visuals.dark_mode {
+        Color32::from_rgb(25, 31, 42)
+    } else {
+        Color32::from_rgb(245, 247, 250)
+    }
+}
+
+pub fn card_bg(ctx: &egui::Context) -> Color32 {
+    if ctx.style().visuals.dark_mode {
+        Color32::from_rgb(36, 44, 58)
+    } else {
+        Color32::from_rgb(255, 255, 255)
+    }
+}
+
+pub fn apply_theme(ctx: &egui::Context, dark_mode: bool) {
+    let mut v = if dark_mode {
+        egui::Visuals::dark()
+    } else {
+        egui::Visuals::light()
+    };
+    v.panel_fill = content_bg(ctx);
+    v.window_fill = card_bg(ctx);
+    v.extreme_bg_color = if dark_mode {
+        Color32::from_rgb(14, 28, 58)
+    } else {
+        Color32::from_rgb(230, 235, 240)
+    };
     v.selection.bg_fill = ACCENT;
-    v.selection.stroke = Stroke::new(1.0_f32, Color32::WHITE); // testo bianco nelle barre di avanzamento
+    v.selection.stroke = Stroke::new(1.0_f32, if dark_mode { Color32::WHITE } else { Color32::BLACK });
     v.window_rounding = egui::Rounding::same(12.0);
 
-    // testo ben leggibile
-    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, TEXT);
-    v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, Color32::WHITE);
-    v.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, Color32::WHITE);
-    v.widgets.active.fg_stroke = Stroke::new(1.0_f32, Color32::WHITE);
+    let text_color = if dark_mode { TEXT } else { Color32::from_rgb(30, 40, 50) };
+    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, text_color);
+    v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, if dark_mode { Color32::WHITE } else { Color32::BLACK });
+    v.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, if dark_mode { Color32::WHITE } else { Color32::BLACK });
+    v.widgets.active.fg_stroke = Stroke::new(1.0_f32, if dark_mode { Color32::WHITE } else { Color32::BLACK });
 
-    // pulsanti arrotondati
     let r = egui::Rounding::same(8.0);
     v.widgets.inactive.rounding = r;
     v.widgets.hovered.rounding = r;
@@ -69,7 +98,8 @@ pub fn title(ui: &mut egui::Ui, text: &'static str) {
     ui.horizontal(|ui| {
         let (r, _) = ui.allocate_exact_size(vec2(6.0, 34.0), Sense::hover());
         ui.painter().rect_filled(r, 3.0, ACCENT);
-        ui.label(egui::RichText::new(t(text)).size(30.0).strong().color(Color32::WHITE));
+        let title_col = if ui.visuals().dark_mode { Color32::WHITE } else { Color32::from_rgb(20, 30, 40) };
+        ui.label(egui::RichText::new(t(text)).size(30.0).strong().color(title_col));
     });
     ui.add_space(12.0);
 }
@@ -84,11 +114,14 @@ pub fn sub_tabs(ui: &mut egui::Ui, sub: &mut usize, names: &[&'static str]) {
 }
 
 pub fn card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    let dark_mode = ui.visuals().dark_mode;
+    let bg = card_bg(ui.ctx());
+    let stroke_color = if dark_mode { Color32::from_white_alpha(16) } else { Color32::from_black_alpha(20) };
     egui::Frame::default()
-        .fill(CARD_BG)
+        .fill(bg)
         .rounding(12.0)
         .inner_margin(egui::Margin::same(16.0))
-        .stroke(Stroke::new(1.0_f32, Color32::from_white_alpha(16)))
+        .stroke(Stroke::new(1.0_f32, stroke_color))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             add(ui)
@@ -96,10 +129,12 @@ pub fn card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
         .inner
 }
 
-/// Riquadro blu con una breve spiegazione per principianti.
 pub fn hint(ui: &mut egui::Ui, text: &'static str) {
+    let dark_mode = ui.visuals().dark_mode;
+    let fill = if dark_mode { Color32::from_rgb(20, 52, 104) } else { Color32::from_rgb(215, 230, 250) };
+    let text_col = if dark_mode { Color32::WHITE } else { Color32::from_rgb(20, 40, 70) };
     egui::Frame::default()
-        .fill(Color32::from_rgb(20, 52, 104))
+        .fill(fill)
         .rounding(10.0)
         .inner_margin(egui::Margin::same(12.0))
         .stroke(Stroke::new(1.0_f32, BTN_BLUE_HOVER))
@@ -112,7 +147,7 @@ pub fn hint(ui: &mut egui::Ui, text: &'static str) {
                 ui.painter().text(r.center(), Align2::CENTER_CENTER, "i", FontId::proportional(17.0), Color32::WHITE);
                 ui.vertical(|ui| {
                     ui.set_max_width((w - 56.0).max(200.0));
-                    ui.label(egui::RichText::new(t(text)).size(16.0).color(Color32::WHITE));
+                    ui.label(egui::RichText::new(t(text)).size(16.0).color(text_col));
                 });
             });
         });
@@ -122,19 +157,17 @@ pub fn hint(ui: &mut egui::Ui, text: &'static str) {
 pub fn primary_button(ui: &mut egui::Ui, text: &str, enabled: bool) -> egui::Response {
     ui.add_enabled(
         enabled,
-        egui::Button::new(egui::RichText::new(text).strong().size(18.0).color(Color32::WHITE))
+        egui::Button::new(egui::RichText::new(text).strong().size(20.0).color(Color32::WHITE))
             .fill(Color32::from_rgb(0, 150, 136))
-            .rounding(10.0)
-            .min_size(vec2(190.0, 40.0)),
+            .rounding(12.0)
+            .min_size(vec2(235.0, 50.0)),
     )
 }
 
-/// Barra di avanzamento: sfondo blu, testo bianco.
 pub fn bar(frac: f32) -> egui::ProgressBar {
     egui::ProgressBar::new(frac).fill(BAR_BLUE).desired_height(26.0)
 }
 
-/// Colore di una barra di temperatura: blu normale, arancione se calda, rossa se molto calda.
 pub fn heat_color(celsius: f32) -> Color32 {
     if celsius < 65.0 {
         BAR_BLUE
@@ -155,12 +188,11 @@ pub fn level_color(f: f32) -> Color32 {
     }
 }
 
-// ---------------------------------------------------------------- icone disegnate
-
 fn page_color(p: Page) -> Color32 {
     let (r, g, b) = match p {
         Page::Dashboard => (0, 168, 150),
         Page::Cleaner => (46, 170, 100),
+        Page::SafeOptimize => (50, 180, 140),
         Page::Fixer => (232, 140, 40),
         Page::Info => (60, 130, 230),
         Page::Disk => (140, 100, 220),
@@ -184,11 +216,27 @@ fn page_color(p: Page) -> Color32 {
         Page::Timers => (140, 100, 200),
         Page::Synaptic => (100, 160, 220),
         Page::About => (100, 160, 220),
+        Page::History => (80, 140, 200),
+        Page::AdvancedCleaner => (100, 200, 150),
+        Page::Duplicates => (100, 180, 220),
+        Page::Services => (120, 180, 240),
+        Page::Snaps => (120, 180, 240),
+        Page::Report => (0, 168, 150),
+        Page::DiskAnalyzer => (53, 162, 159),
+        Page::Boot => (53, 162, 159),
+        Page::AppImages => (114, 9, 183),
+        Page::MenuEditor => (140, 100, 220),
+        Page::SecurityHardening => (50, 150, 220),
+        Page::HardwareHealth => (70, 180, 120),
+        Page::AppLifecycle => (220, 80, 100),
+        Page::Themes => (180, 100, 220),
+        Page::SystemEditor => (53, 162, 159),
+        Page::TelemetryGuard => (46, 139, 87),
+        Page::Mounts => (50, 150, 220),
     };
     Color32::from_rgb(r, g, b)
 }
 
-/// Icona a tessera colorata con simbolo disegnato a vettori (non dipende dai font).
 pub fn page_icon(p: &egui::Painter, c: Pos2, size: f32, page: Page) {
     let tile = Rect::from_center_size(c, vec2(size, size));
     p.rect_filled(tile, size * 0.28, page_color(page));
@@ -219,6 +267,11 @@ pub fn page_icon(p: &egui::Painter, c: Pos2, size: f32, page: Page) {
             line(pt(-0.55, -0.55), pt(0.55, 0.55), th);
             line(pt(-0.55, 0.55), pt(0.55, -0.55), th);
         }
+        Page::SafeOptimize => {
+            p.circle_stroke(c, s, st);
+            line(pt(0.0, -0.55), pt(0.0, 0.55), st);
+            line(pt(-0.55, 0.0), pt(0.55, 0.0), st);
+        }
         Page::Fixer => {
             line(pt(-0.8, 0.8), pt(0.2, -0.2), Stroke::new((size * 0.12).max(2.0), w));
             p.circle_stroke(pt(0.45, -0.45), s * 0.5, st);
@@ -231,6 +284,20 @@ pub fn page_icon(p: &egui::Painter, c: Pos2, size: f32, page: Page) {
         Page::Disk => {
             p.circle_stroke(c, s, st);
             p.circle_filled(c, s * 0.25, w);
+        }
+        Page::DiskAnalyzer => {
+            p.circle_stroke(c, s, st);
+            p.text(c, Align2::CENTER_CENTER, "📊", FontId::proportional(size * 0.55), w);
+        }
+        Page::SecurityHardening => {
+            // Disegna qui l'icona personalizzata per il modulo di sicurezza (es. uno scudo o linee guida)
+            // Oppure lascia temporaneamente todo!() se vuoi implementare il disegno grafico in un secondo momento
+            line(pt(0.0, -0.6), pt(0.6, 0.6), st);
+            line(pt(0.0, -0.6), pt(-0.6, 0.6), st);
+        }
+        Page::Boot => {
+            p.circle_stroke(c, s, st);
+            p.text(c, Align2::CENTER_CENTER, "⏱", FontId::proportional(size * 0.55), w);
         }
         Page::Procs => {
             p.circle_stroke(c, s * 0.55, st);
@@ -267,11 +334,19 @@ pub fn page_icon(p: &egui::Painter, c: Pos2, size: f32, page: Page) {
                 .collect();
             poly(pts, th);
         }
+        Page::Snaps => {
+            p.circle_stroke(c, s, st);
+            p.text(c, Align2::CENTER_CENTER, "📦", FontId::proportional(size * 0.55), w);
+        }
+        Page::Report => {
+            p.circle_stroke(c, s, st);
+            p.text(c, Align2::CENTER_CENTER, "📋", FontId::proportional(size * 0.55), w);
+        }
         Page::Kernel => {
             poly(vec![pt(-0.9, -0.5), pt(-0.2, 0.0), pt(-0.9, 0.5)], st);
             line(pt(0.1, 0.6), pt(0.9, 0.6), st);
         }
-        Page::Containers | Page::Timers | Page::Synaptic => {
+        Page::Containers | Page::Timers | Page::Synaptic | Page::History | Page::AdvancedCleaner => {
             p.circle_stroke(c, s, st);
         }
         Page::Repos => {
@@ -344,58 +419,180 @@ pub fn page_icon(p: &egui::Painter, c: Pos2, size: f32, page: Page) {
             p.circle_stroke(c, s, st);
             p.text(c, Align2::CENTER_CENTER, "i", FontId::proportional(size * 0.55), w);
         }
+        Page::Duplicates => {
+            p.circle_stroke(c, s, st);
+            p.text(c, Align2::CENTER_CENTER, "📁", FontId::proportional(size * 0.55), w);
+        }
+        Page::Services => {
+            p.circle_stroke(c, s, st);
+            p.text(c, Align2::CENTER_CENTER, "⚙", FontId::proportional(size * 0.55), w);
+        }
+        Page::AppImages => {
+          p.circle_stroke(c, s, st);
+          p.text(c, Align2::CENTER_CENTER, "📦", FontId::proportional(size * 0.55), w);
+        }
+        Page::MenuEditor => {
+            p.circle_stroke(c, s, st);
+            p.text(c, Align2::CENTER_CENTER, "📋", FontId::proportional(size * 0.55), w);
+        }
+        Page::HardwareHealth => { 
+            p.circle_stroke(c, s, st);
+            p.text(c, Align2::CENTER_CENTER, "🔋", FontId::proportional(size * 0.55), w);
+        }
+        Page::AppLifecycle => { 
+            p.circle_stroke(c, s, st);
+            p.text(c, Align2::CENTER_CENTER, "✂", FontId::proportional(size * 0.55), w);
+        }
+        Page::Themes => {
+            p.circle_stroke(c, s, st);
+            p.text(c, Align2::CENTER_CENTER, "🎨", FontId::proportional(size * 0.55), w);
+        }
+        Page::SystemEditor => { 
+            p.circle_stroke(c, s, st);
+            p.text(c, Align2::CENTER_CENTER, "🛠", FontId::proportional(size * 0.55), w);
+        }
+        Page::TelemetryGuard => {
+         p.circle_stroke(c, s, st);
+         p.text(c, Align2::CENTER_CENTER, "🛡", FontId::proportional(size * 0.55), w);
+        }
+        Page::Mounts => {
+            rr(pt(-0.9, -0.55), pt(0.9, 0.55));
+            line(pt(-0.55, 0.2), pt(0.55, 0.2), th);
+        }
     }
 }
 
-/// Voce della barra laterale: tessera colorata + testo allineato a sinistra.
 pub fn sidebar_item(ui: &mut egui::Ui, page: Page, name: &str, selected: bool) -> bool {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::click());
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     let p = ui.painter();
+    let dark_mode = ui.visuals().dark_mode;
     if selected {
-        p.rect_filled(rect, 10.0, Color32::from_rgb(36, 52, 66));
+        let sel_bg = if dark_mode { Color32::from_rgb(36, 52, 66) } else { Color32::from_rgb(210, 220, 235) };
+        p.rect_filled(rect, 10.0, sel_bg);
         p.rect_filled(Rect::from_min_size(rect.left_top() + vec2(0.0, 8.0), vec2(4.0, 26.0)), 2.0, ACCENT);
     } else if resp.hovered() {
-        p.rect_filled(rect, 10.0, Color32::from_white_alpha(12));
+        let hover_bg = if dark_mode { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(15) };
+        p.rect_filled(rect, 10.0, hover_bg);
     }
     page_icon(p, Pos2::new(rect.left() + 28.0, rect.center().y), 30.0, page);
+    let text_color = if dark_mode {
+        if selected { Color32::WHITE } else { TEXT }
+    } else {
+        if selected { Color32::BLACK } else { Color32::from_rgb(40, 50, 60) }
+    };
     p.text(
         Pos2::new(rect.left() + 54.0, rect.center().y),
         Align2::LEFT_CENTER,
         name,
         FontId::proportional(17.0),
-        if selected { Color32::WHITE } else { TEXT },
+        text_color,
     );
     resp.clicked()
 }
 
-/// Tessera grande cliccabile per la dashboard.
 pub fn tile(ui: &mut egui::Ui, page: Page, title: &str, sub: &str) -> bool {
-    let (rect, resp) = ui.allocate_exact_size(vec2(260.0, 86.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(290.0, 98.0), Sense::click());
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     let p = ui.painter();
-    let fill = if resp.hovered() { Color32::from_rgb(47, 58, 77) } else { CARD_BG };
+    let dark_mode = ui.visuals().dark_mode;
+    let fill = if resp.hovered() {
+        if dark_mode { Color32::from_rgb(47, 58, 77) } else { Color32::from_rgb(230, 235, 242) }
+    } else {
+        card_bg(ui.ctx())
+    };
     p.rect_filled(rect, 12.0, fill);
-    p.rect_stroke(rect, 12.0, Stroke::new(1.0_f32, Color32::from_white_alpha(16)));
-    page_icon(p, Pos2::new(rect.left() + 46.0, rect.center().y), 54.0, page);
+    let stroke_color = if dark_mode { Color32::from_white_alpha(16) } else { Color32::from_black_alpha(20) };
+    p.rect_stroke(rect, 12.0, Stroke::new(1.0_f32, stroke_color));
+    page_icon(p, Pos2::new(rect.left() + 50.0, rect.center().y), 60.0, page);
+    let title_color = if dark_mode { Color32::WHITE } else { Color32::from_rgb(30, 40, 50) };
     p.text(
-        Pos2::new(rect.left() + 88.0, rect.center().y - 12.0),
+        Pos2::new(rect.left() + 96.0, rect.center().y - 13.0),
         Align2::LEFT_CENTER,
         tr(title),
-        FontId::proportional(19.0),
-        Color32::WHITE,
+        FontId::proportional(20.0),
+        title_color,
     );
     p.text(
-        Pos2::new(rect.left() + 88.0, rect.center().y + 13.0),
+        Pos2::new(rect.left() + 96.0, rect.center().y + 14.0),
         Align2::LEFT_CENTER,
         tr(sub),
-        FontId::proportional(14.5),
+        FontId::proportional(15.0),
         TEXT_DIM,
     );
     resp.clicked()
 }
 
-// ---------------------------------------------------------------- grafici
+pub fn dash_tile(ui: &mut egui::Ui, page: Page, title: &str, width: f32, height: f32) -> bool {
+    let (rect, resp) = ui.allocate_exact_size(vec2(width.max(150.0), height.max(120.0)), Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    let p = ui.painter();
+    let dark_mode = ui.visuals().dark_mode;
+
+    let fill = if resp.hovered() {
+        if dark_mode { Color32::from_rgb(48, 60, 80) } else { Color32::from_rgb(228, 234, 242) }
+    } else {
+        card_bg(ui.ctx())
+    };
+    p.rect_filled(rect, 14.0, fill);
+
+    let stroke_color = if dark_mode { Color32::from_white_alpha(20) } else { Color32::from_black_alpha(24) };
+    p.rect_stroke(rect, 14.0, Stroke::new(1.0_f32, stroke_color));
+
+    let title_color = if dark_mode { Color32::WHITE } else { Color32::from_rgb(25, 35, 45) };
+    p.text(
+        Pos2::new(rect.center().x, rect.top() + 26.0),
+        Align2::CENTER_CENTER,
+        tr(title),
+        FontId::proportional(17.0),
+        title_color,
+    );
+
+    let icon_center = Pos2::new(rect.center().x, rect.top() + height * 0.58);
+    let ring_r = (height * 0.25).clamp(26.0, 40.0);
+    let ring_bg = if dark_mode { Color32::from_rgb(26, 33, 45) } else { Color32::from_rgb(235, 240, 246) };
+    p.circle_filled(icon_center, ring_r, ring_bg);
+    p.circle_stroke(icon_center, ring_r, Stroke::new(1.5_f32, stroke_color));
+
+    page_icon(p, icon_center, ring_r * 1.15, page);
+    resp.clicked()
+}
+
+pub fn cpu_dial(ui: &mut egui::Ui, frac: f32, label: &str) {
+    let frac = frac.clamp(0.0, 1.0);
+    let size = 132.0;
+    let (rect, _) = ui.allocate_exact_size(vec2(size + 16.0, size + 12.0), Sense::hover());
+    let p = ui.painter_at(rect);
+    let c = rect.center();
+    let r = size * 0.42;
+    let start = 0.75 * PI;
+    let sweep = 1.5 * PI;
+
+    let bg_ring = if ui.visuals().dark_mode { Color32::from_white_alpha(26) } else { Color32::from_black_alpha(22) };
+    p.add(Shape::line(arc(c, r, start, start + sweep), Stroke::new(11.0_f32, bg_ring)));
+    if frac > 0.005 {
+        p.add(Shape::line(
+            arc(c, r, start, start + sweep * frac),
+            Stroke::new(11.0_f32, level_color(frac)),
+        ));
+    }
+
+    let text_col = if ui.visuals().dark_mode { Color32::WHITE } else { Color32::from_rgb(25, 35, 45) };
+    p.text(
+        Pos2::new(c.x, c.y - 6.0),
+        Align2::CENTER_CENTER,
+        format!("{:.0}%", frac * 100.0),
+        FontId::proportional(24.0),
+        text_col,
+    );
+    p.text(
+        Pos2::new(c.x, c.y + 18.0),
+        Align2::CENTER_CENTER,
+        tr(label),
+        FontId::proportional(13.0),
+        TEXT_DIM,
+    );
+}
 
 fn arc(c: Pos2, r: f32, a0: f32, a1: f32) -> Vec<Pos2> {
     let n = 48;
@@ -407,7 +604,6 @@ fn arc(c: Pos2, r: f32, a0: f32, a1: f32) -> Vec<Pos2> {
         .collect()
 }
 
-/// Indicatore circolare.
 pub fn gauge(ui: &mut egui::Ui, frac: f32, title: &str, sub: &str) {
     let frac = frac.clamp(0.0, 1.0);
     let size = 160.0;
@@ -424,17 +620,19 @@ pub fn gauge(ui: &mut egui::Ui, frac: f32, title: &str, sub: &str) {
             Stroke::new(13.0_f32, level_color(frac)),
         ));
     }
-    p.text(c, Align2::CENTER_CENTER, format!("{:.0}%", frac * 100.0), FontId::proportional(30.0), Color32::WHITE);
-    p.text(Pos2::new(c.x, c.y + r + 26.0), Align2::CENTER_CENTER, tr(title), FontId::proportional(18.0), Color32::WHITE);
+    let text_col = if ui.visuals().dark_mode { Color32::WHITE } else { Color32::from_rgb(30, 40, 50) };
+    p.text(c, Align2::CENTER_CENTER, format!("{:.0}%", frac * 100.0), FontId::proportional(30.0), text_col);
+    p.text(Pos2::new(c.x, c.y + r + 26.0), Align2::CENTER_CENTER, tr(title), FontId::proportional(18.0), text_col);
     p.text(Pos2::new(c.x, c.y + r + 46.0), Align2::CENTER_CENTER, sub, FontId::proportional(14.0), TEXT_DIM);
 }
 
-/// Grafico storico a linea (valori da 0.0 a 1.0).
 pub fn sparkline(ui: &mut egui::Ui, data: &VecDeque<f32>, color: Color32, height: f32) {
     let w = ui.available_width().max(100.0);
     let (rect, _) = ui.allocate_exact_size(vec2(w, height), Sense::hover());
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 6.0, Color32::from_black_alpha(70));
+    let dark_mode = ui.visuals().dark_mode;
+    let bg = if dark_mode { Color32::from_black_alpha(70) } else { Color32::from_black_alpha(20) };
+    p.rect_filled(rect, 6.0, bg);
     let n = data.len();
     if n < 2 {
         return;
@@ -450,7 +648,6 @@ pub fn sparkline(ui: &mut egui::Ui, data: &VecDeque<f32>, color: Color32, height
     p.add(Shape::line(pts, Stroke::new(2.5_f32, color)));
 }
 
-/// Spia di stato: verde / rosso / grigio (sconosciuto).
 pub fn led(ui: &mut egui::Ui, state: Option<bool>, text: &str) {
     let col = match state {
         Some(true) => GOOD,
@@ -465,8 +662,10 @@ pub fn led(ui: &mut egui::Ui, state: Option<bool>, text: &str) {
 }
 
 pub fn output_box(ui: &mut egui::Ui, text: &str, height: f32) {
+    let dark_mode = ui.visuals().dark_mode;
+    let bg = if dark_mode { Color32::from_rgb(17, 22, 30) } else { Color32::from_rgb(235, 240, 245) };
     egui::Frame::default()
-        .fill(Color32::from_rgb(17, 22, 30))
+        .fill(bg)
         .inner_margin(egui::Margin::same(10.0))
         .rounding(8.0)
         .show(ui, |ui| {
@@ -477,10 +676,11 @@ pub fn output_box(ui: &mut egui::Ui, text: &str, height: f32) {
         });
 }
 
-/// Come `output_box`, ma resta agganciato in fondo mentre arrivano nuove righe.
 pub fn output_box_follow(ui: &mut egui::Ui, text: &str, height: f32) {
+    let dark_mode = ui.visuals().dark_mode;
+    let bg = if dark_mode { Color32::from_rgb(17, 22, 30) } else { Color32::from_rgb(235, 240, 245) };
     egui::Frame::default()
-        .fill(Color32::from_rgb(17, 22, 30))
+        .fill(bg)
         .inner_margin(egui::Margin::same(10.0))
         .rounding(8.0)
         .show(ui, |ui| {

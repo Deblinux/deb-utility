@@ -9,17 +9,40 @@ use std::time::Duration;
 pub struct Config {
     pub quick_clean: bool,
     pub lang: usize,
+    pub start_as_root: bool,
+    pub dark_mode: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { quick_clean: false, lang: i18n::detect() }
+        Self { 
+            quick_clean: false, 
+            lang: i18n::detect(),
+            start_as_root: false,
+            dark_mode: true, 
+        }
     }
 }
 
 impl Config {
-    fn path() -> PathBuf {
-        PathBuf::from(util::home()).join(".config/debclean/config")
+
+fn path() -> PathBuf {
+        let home = std::env::var("PKEXEC_UID")
+            .ok()
+            .and_then(|uid| {
+                std::fs::read_to_string("/etc/passwd").ok().and_then(|content| {
+                    content.lines().find_map(|line| {
+                        let parts: Vec<&str> = line.split(':').collect();
+                        if parts.len() > 5 && parts[2] == uid {
+                            Some(parts[5].to_string())
+                        } else {
+                            None
+                        }
+                    })
+                })
+            })
+            .unwrap_or_else(util::home);
+        PathBuf::from(home).join(".config/debclean/config")
     }
 
     pub fn load() -> Self {
@@ -29,7 +52,14 @@ impl Config {
             .find_map(|l| l.trim().strip_prefix("lang="))
             .and_then(i18n::index_of)
             .unwrap_or_else(i18n::detect);
-        Config { quick_clean: text.lines().any(|l| l.trim() == "quick_clean=1"), lang }
+        let quick_clean = text.lines().any(|l| l.trim() == "quick_clean=1");
+        let start_as_root = text.lines().any(|l| l.trim() == "start_as_root=1");
+        let dark_mode = if text.contains("dark_mode=") {
+            text.lines().any(|l| l.trim() == "dark_mode=1")
+        } else {
+            true
+        };
+        Config { quick_clean, lang, start_as_root, dark_mode }
     }
 
     pub fn save(&self) {
@@ -37,11 +67,20 @@ impl Config {
         if let Some(d) = p.parent() {
             let _ = std::fs::create_dir_all(d);
         }
-        let _ = std::fs::write(p, format!(
-                "quick_clean={}\nlang={}\n",
+        let _ = std::fs::write(&p, format!(
+                "quick_clean={}\nlang={}\nstart_as_root={}\ndark_mode={}\n",
                 if self.quick_clean { 1 } else { 0 },
-                i18n::code_of(self.lang)
+                i18n::code_of(self.lang),
+                if self.start_as_root { 1 } else { 0 },
+                if self.dark_mode { 1 } else { 0 }
             ));
+
+        if let (Ok(uid), Ok(gid)) = (std::env::var("PKEXEC_UID"), std::env::var("PKEXEC_GID")) {
+            let _ = std::process::Command::new("chown")
+                .arg(format!("{}:{}", uid, gid))
+                .arg(&p)
+                .status();
+        }
     }
 
     pub fn reset() {
@@ -209,11 +248,19 @@ pub(crate) fn ui_firewall(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 "journalctl -p err -b --no-pager | tail -n 100", true, None);
         });
         ui.label(t("Operazioni di DebClean:"));
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            ui.label(t("Dimensione massima log journald:"));
+            ui.add(egui::Slider::new(&mut self.journal_max_mb, 50..=2000).suffix(" MB"));
+            let script = format!("journalctl --vacuum-size={}M", self.journal_max_mb);
+            self.run_btn(ui, ctx, t("🧹 Riduci log journald"), "journal", &script, true, None);
+        });
+        ui.add_space(4.0);
         let txt = if self.log_pause { &self.log_frozen } else { &self.log };
         ui::output_box(ui, txt, 300.0);
         ui.label(t("Errori del journal:"));
         self.show_out(ui, "journal", 260.0);
-        self.solutions_ui(ui, "journal", true);
+        self.solutions_ui(ui, ctx, "journal", true);
     }
 
     // ----- File shredder
@@ -291,17 +338,886 @@ pub(crate) fn ui_firewall(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         {
             self.cfg.save();
         }
+        if ui
+            .checkbox(&mut self.cfg.start_as_root, t("Avvia sempre come amministratore (richiedi password all'avvio)"))
+            .changed()
+        {
+            self.cfg.save();
+        }
+        if ui
+            .checkbox(&mut self.cfg.dark_mode, t("Tema scuro dell'interfaccia"))
+            .changed()
+        {
+            self.cfg.save();
+        }
         ui.add_space(10.0);
         ui.heading(t("Password amministratore"));
         ui.label(t(
             "Per sicurezza DebClean non salva la password di root: le operazioni privilegiate usano pkexec \
              e il sistema chiede l'autorizzazione tramite la finestra di Polkit.",
         ));
+
+ui.add_space(10.0);
+        ui.heading(t("Profilo di Configurazione"));
+        ui.label(t("Esporta o importa le preferenze e le configurazioni di DebClean in un file TOML."));
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            if ui.button(t("💾 Esporta profilo")).clicked() {
+                let out = std::process::Command::new("zenity")
+                    .args(["--file-selection", "--save", "--confirm-overwrite", "--filename=debclean-profile.toml"])
+                    .output();
+                if let Ok(res) = out {
+                    if res.status.success() {
+                        let path_str = String::from_utf8_lossy(&res.stdout).trim().to_string();
+                        if !path_str.is_empty() {
+                            let profile = crate::profile::UserProfile {
+                                version: 1,
+                                custom_blocked_domains: vec![],
+                                cleaning_paths: vec![],
+                                telemetry_guard_enabled: self.cfg.dark_mode,
+                            };
+                            match crate::profile::export_profile_to_file(&profile, std::path::Path::new(&path_str)) {
+                                Ok(_) => self.log.push_str(&format!("✔ Profilo esportato in: {path_str}\n")),
+                                Err(e) => self.log.push_str(&format!("✘ Errore esportazione: {e}\n")),
+                            }
+                        }
+                    }
+                }
+            }
+
+            if ui.button(t("📂 Importa profilo")).clicked() {
+                let out = std::process::Command::new("zenity")
+                    .args(["--file-selection"])
+                    .output();
+                if let Ok(res) = out {
+                    if res.status.success() {
+                        let path_str = String::from_utf8_lossy(&res.stdout).trim().to_string();
+                        if !path_str.is_empty() {
+                            match crate::profile::import_profile_from_file(std::path::Path::new(&path_str)) {
+                                Ok(_profile) => {
+                                    self.log.push_str(&format!("✔ Profilo importato da: {path_str}\n"));
+                                }
+                                Err(e) => self.log.push_str(&format!("✘ Errore importazione: {e}\n")),
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
         ui.add_space(10.0);
         if ui.button(t("↺ Reimposta configurazione")).clicked() {
             Config::reset();
             self.cfg = Config::default();
             i18n::set_lang(self.cfg.lang);
         }
+    }
+    // ----- Kernel orfani con anteprima spazio
+pub fn ui_orphan_kernels(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+    ui::title(ui, t("Kernel Orfani e Anteprima Spazio"));
+    ui::hint(
+        ui,
+        t("Individua i kernel installati ma non in uso, calcola lo spazio disco occupato da ciascuno e mostra l'anteprima totale in MB/GB prima della rimozione."),
+    );
+
+    ui.add_space(8.0);
+    if ui.add_enabled(!self.busy, egui::Button::new(t("🔍 Scansiona kernel e spazio"))).clicked() {
+        self.spawn(ctx, move |ch| {
+            ch.send(Msg::Log("▶ Scansione kernel installati e calcolo spazio su disco...".into()));
+            let running = std::process::Command::new("uname")
+                .arg("-r")
+                .output()
+                .ok()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_default();
+
+            let out = std::process::Command::new("dpkg-query")
+                .args(["-W", "-f=${Package}\t${Installed-Size}\t${Status}\n", "linux-image-*", "linux-headers-*"])
+                .output();
+
+            let mut map: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+            if let Ok(res) = out {
+                for line in String::from_utf8_lossy(&res.stdout).lines() {
+                    let parts: Vec<&str> = line.split('\t').collect();
+                    if parts.len() >= 3 && parts[2].contains("installed") {
+                        let pkg = parts[0].trim();
+                        let kb: u64 = parts[1].trim().parse().unwrap_or(0);
+                        let ver = pkg
+                            .trim_start_matches("linux-image-")
+                            .trim_start_matches("linux-headers-")
+                            .trim_start_matches("unsigned-");
+                        if !ver.is_empty() && !running.starts_with(ver) && !ver.starts_with(&running) {
+                            *map.entry(ver.to_string()).or_insert(0) += kb * 1024;
+                        }
+                    }
+                }
+            }
+            let list: Vec<(String, u64, bool)> = map.into_iter().map(|(v, b)| (v, b, false)).collect();
+            ch.send(Msg::OrphanKernels(list.clone()));
+            ch.send(Msg::Log(format!("✔ Trovati {} kernel non in uso.", list.len())));
+            let summary: String = list
+                .iter()
+                .map(|(v, bytes, _)| format!("{v}: {:.1} MB", *bytes as f64 / (1024.0 * 1024.0)))
+                .collect::<Vec<_>>()
+                .join(" | ");
+            if !summary.is_empty() {
+                ch.send(Msg::Log(format!("Kernel rilevati -> {summary}")));
+            }
+        });
+    }
+
+    ui.add_space(10.0);
+    let selected_bytes: u64 = self.orphan_kernels.iter().filter(|(_, _, s)| *s).map(|(_, b, _)| *b).sum();
+    let total_bytes: u64 = self.orphan_kernels.iter().map(|(_, b, _)| *b).sum();
+
+    ui::card(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(t("Spazio liberabile selezionato:")).strong().size(16.0));
+            let mb = selected_bytes as f64 / (1024.0 * 1024.0);
+            let gb = selected_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+            ui.label(
+                egui::RichText::new(format!("{mb:.1} MB ({gb:.2} GB)"))
+                    .strong()
+                    .size(18.0)
+                    .color(ui::ACCENT),
+            );
+        });
+        ui.add_space(6.0);
+        let frac = if total_bytes > 0 {
+            (selected_bytes as f32 / total_bytes as f32).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        ui.add(egui::ProgressBar::new(frac).text(t("Quota spazio kernel selezionato")));
+    });
+
+    ui.add_space(10.0);
+    ui::card(ui, |ui| {
+        if self.orphan_kernels.is_empty() {
+            ui.label(t("Nessun kernel orfano caricato nella lista interattiva. Premi 'Scansiona kernel e spazio' per analizzare il sistema."));
+        } else {
+            for (ver, bytes, sel) in &mut self.orphan_kernels {
+                let mb = *bytes as f64 / (1024.0 * 1024.0);
+                ui.horizontal(|ui| {
+                    ui.checkbox(sel, egui::RichText::new(ver.as_str()).strong());
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(egui::RichText::new(format!("{mb:.1} MB")).color(ui::ACCENT));
+                    });
+                });
+            }
+            ui.add_space(8.0);
+            let targets: Vec<String> = self
+                .orphan_kernels
+                .iter()
+                .filter(|(_, _, s)| *s)
+                .map(|(v, _, _)| format!("linux-image-{v}* linux-headers-{v}*"))
+                .collect();
+            if !targets.is_empty() {
+                let script = format!("apt-get purge -y {} && update-grub", targets.join(" "));
+                self.run_btn(
+                    ui,
+                    ctx,
+                    t("🗑 Rimuovi kernel selezionati"),
+                    "orphan_kernels",
+                    &script,
+                    true,
+                    Some(t("Rimuovere definitivamente i kernel selezionati e aggiornare GRUB?")),
+                );
+            }
+        }
+    });
+    self.show_out(ui, "orphan_kernels", 200.0);
+}
+// ----- Monitor Connessioni Attive (TCP/UDP Socket Viewer)
+    pub fn ui_net_sockets(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui::title(ui, t("Monitor Connessioni Attive (TCP/UDP)"));
+        ui::hint(
+            ui,
+            t("Visualizza le socket TCP/UDP attive in ascolto o connesse e il relativo processo/programma per individuare comunicazioni di rete inattese."),
+        );
+
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            if ui.add_enabled(!self.busy, egui::Button::new(t("🔄 Aggiorna connessioni"))).clicked() {
+                self.spawn(ctx, move |ch| {
+                    ch.send(Msg::Log("▶ Lettura socket TCP/UDP attive e processi associati...".into()));
+                    let out = std::process::Command::new("sh")
+                        .arg("-c")
+                        .arg("ss -tupn 2>/dev/null || netstat -tupn 2>/dev/null")
+                        .output();
+
+                    let mut rows: Vec<(String, String, String, String, String)> = Vec::new();
+                    if let Ok(res) = out {
+                        for line in String::from_utf8_lossy(&res.stdout).lines().skip(1) {
+                            let cols: Vec<&str> = line.split_whitespace().collect();
+                            if cols.len() >= 5 {
+                                let proto = cols[0].to_string();
+                                let state = if proto.starts_with("udp") {
+                                    "STATELESS".to_string()
+                                } else {
+                                    cols[1].to_string()
+                                };
+                                let local = if proto.starts_with("udp") {
+                                    cols.get(3).copied().unwrap_or("-").to_string()
+                                } else {
+                                    cols.get(4).copied().unwrap_or("-").to_string()
+                                };
+                                let remote = if proto.starts_with("udp") {
+                                    cols.get(4).copied().unwrap_or("-").to_string()
+                                } else {
+                                    cols.get(5).copied().unwrap_or("-").to_string()
+                                };
+                                let proc_col = cols
+                                    .iter()
+                                    .find(|c| c.contains("users:(") || c.contains('/'))
+                                    .copied()
+                                    .unwrap_or("sconosciuto / permessi limitati")
+                                    .to_string();
+                                rows.push((proto, state, local, remote, proc_col));
+                            }
+                        }
+                    }
+
+                    let total = rows.len();
+                    ch.send(Msg::NetSockets(rows));
+                    ch.send(Msg::Log(format!("✔ Rilevate {total} socket attive.")));
+                });
+            }
+
+            ui.label(t("Filtro:"));
+            ui.add(egui::TextEdit::singleline(&mut self.net_socket_filter).desired_width(220.0));
+            if !self.net_socket_filter.is_empty() && ui.button("✖").clicked() {
+                self.net_socket_filter.clear();
+            }
+            if self.busy {
+                ui.spinner();
+            }
+        });
+
+        ui.add_space(10.0);
+        ui::card(ui, |ui| {
+            let filter = self.net_socket_filter.trim().to_lowercase();
+            let filtered: Vec<&(String, String, String, String, String)> = self
+                .net_sockets
+                .iter()
+                .filter(|(proto, state, local, remote, proc_info)| {
+                    filter.is_empty()
+                        || proto.to_lowercase().contains(&filter)
+                        || state.to_lowercase().contains(&filter)
+                        || local.to_lowercase().contains(&filter)
+                        || remote.to_lowercase().contains(&filter)
+                        || proc_info.to_lowercase().contains(&filter)
+                })
+                .collect();
+
+            if filtered.is_empty() {
+                ui.label(t("Nessuna connessione caricata o corrispondente al filtro. Premi 'Aggiorna connessioni'."));
+            } else {
+                ui.label(
+                    egui::RichText::new(format!("{}: {}", t("Socket visualizzate"), filtered.len()))
+                        .strong()
+                        .color(ui::ACCENT),
+                );
+                ui.add_space(6.0);
+                egui::ScrollArea::vertical().id_salt("net_sockets_scroll").max_height(280.0).show(ui, |ui| {
+                    egui::Grid::new("net_sockets_grid")
+                        .num_columns(5)
+                        .spacing([12.0, 4.0])
+                        .striped(true)
+                        .show(ui, |ui| {
+                            ui.strong(t("Proto"));
+                            ui.strong(t("Stato"));
+                            ui.strong(t("Locale"));
+                            ui.strong(t("Remoto"));
+                            ui.strong(t("Processo / PID"));
+                            ui.end_row();
+
+                            for (proto, state, local, remote, proc_info) in filtered {
+                                ui.label(proto.as_str());
+                                ui.label(state.as_str());
+                                ui.label(egui::RichText::new(local.as_str()).monospace());
+                                ui.label(egui::RichText::new(remote.as_str()).monospace());
+                                ui.label(egui::RichText::new(proc_info.as_str()).strong());
+                                ui.end_row();
+                            }
+                        });
+});
+        }
+    });
+}
+
+// ----- Gestore Chiavi GPG e Repository PPA con Verifica Stato
+pub fn ui_gpg_keys(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+    ui::title(ui, t("Gestore Chiavi GPG e Repository PPA"));
+    ui::hint(
+        ui,
+        t("Verifica lo stato di validità delle chiavi GPG dei repository e PPA, evidenzia quelle scadute o prossime alla scadenza e consente il rinnovo automatico."),
+    );
+
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        if ui.add_enabled(!self.busy, egui::Button::new(t("🔍 Verifica chiavi GPG"))).clicked() {
+            self.spawn(ctx, move |ch| {
+                ch.send(Msg::Log("▶ Scansione chiavi GPG di repository e PPA in corso...".into()));
+                let now_epoch: i64 = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                let soon_secs: i64 = 30 * 86400;
+
+                let mut key_files: Vec<std::path::PathBuf> = Vec::new();
+                for dir in ["/etc/apt/keyrings", "/etc/apt/trusted.gpg.d"] {
+                    if let Ok(entries) = std::fs::read_dir(dir) {
+                        for e in entries.flatten() {
+                            let p = e.path();
+                            if p.is_file() {
+                                key_files.push(p);
+                            }
+                        }
+                    }
+                }
+                let legacy_ring = std::path::PathBuf::from("/etc/apt/trusted.gpg");
+                if legacy_ring.is_file() {
+                    key_files.push(legacy_ring);
+                }
+
+                // Tuple: (key_id_or_fpr, owner_or_file, expiry_label, status_code, source_path)
+                let mut rows: Vec<(String, String, String, String, String)> = Vec::new();
+                for path in key_files {
+                    let out = std::process::Command::new("gpg")
+                        .args(["--batch", "--with-colons", "--fixed-list-mode", "--show-keys"])
+                        .arg(&path)
+                        .output();
+                    if let Ok(res) = out {
+                        let mut cur_fpr = String::new();
+                        let mut cur_exp = String::new();
+                        let mut cur_uid = String::new();
+                        let mut has_pub = false;
+
+                        let flush_key = |fpr: &str, uid: &str, exp_s: &str, p: &std::path::Path, rows: &mut Vec<(String, String, String, String, String)>| {
+                            if fpr.is_empty() {
+                                return;
+                            }
+                            let (status, exp_label) = if exp_s.is_empty() {
+                                ("VALID".to_string(), t("Nessuna scadenza").to_string())
+                            } else if let Ok(ts) = exp_s.parse::<i64>() {
+                                let diff = ts - now_epoch;
+                                let date_str = std::process::Command::new("date")
+                                    .args(["-d", &format!("@{ts}"), "+%Y-%m-%d"])
+                                    .output()
+                                    .ok()
+                                    .and_then(|o| String::from_utf8(o.stdout).ok())
+                                    .map(|s| s.trim().to_string())
+                                    .filter(|s| !s.is_empty())
+                                    .unwrap_or_else(|| ts.to_string());
+                                if diff < 0 {
+                                    ("EXPIRED".to_string(), tf("Scaduta ({})", &[&date_str]))
+                                } else if diff <= soon_secs {
+                                    let days = (diff / 86400).max(0);
+                                    ("EXPIRING".to_string(), tf("In scadenza tra {}g ({})", &[&days, &date_str]))
+                                } else {
+                                    ("VALID".to_string(), tf("Valida fino al {}", &[&date_str]))
+                                }
+                            } else {
+                                ("VALID".to_string(), exp_s.to_string())
+                            };
+
+                            let short_id = if fpr.len() > 16 { &fpr[fpr.len() - 16..] } else { fpr };
+                            let label_uid = if uid.is_empty() {
+                                p.file_name().and_then(|n| n.to_str()).unwrap_or("keyring").to_string()
+                            } else {
+                                uid.to_string()
+                            };
+                            rows.push((
+                                short_id.to_string(),
+                                label_uid,
+                                exp_label,
+                                status,
+                                p.to_string_lossy().to_string(),
+                            ));
+                        };
+
+                        for line in String::from_utf8_lossy(&res.stdout).lines() {
+                            let f: Vec<&str> = line.split(':').collect();
+                            match f.first().copied() {
+                                Some("pub") => {
+                                    if has_pub {
+                                        flush_key(&cur_fpr, &cur_uid, &cur_exp, &path, &mut rows);
+                                    }
+                                    has_pub = true;
+                                    cur_fpr.clear();
+                                    cur_uid.clear();
+                                    cur_exp = f.get(6).copied().unwrap_or("").trim().to_string();
+                                }
+                                Some("fpr") if cur_fpr.is_empty() => {
+                                    cur_fpr = f.get(9).copied().unwrap_or("").trim().to_string();
+                                }
+                                Some("uid") if cur_uid.is_empty() => {
+                                    cur_uid = f.get(9).copied().unwrap_or("").trim().to_string();
+                                }
+                                _ => {}
+                            }
+                        }
+                        if has_pub {
+                            flush_key(&cur_fpr, &cur_uid, &cur_exp, &path, &mut rows);
+                        }
+                    }
+                }
+
+                let expired_cnt = rows.iter().filter(|(_, _, _, st, _)| st == "EXPIRED").count();
+                let soon_cnt = rows.iter().filter(|(_, _, _, st, _)| st == "EXPIRING").count();
+                let total_cnt = rows.len();
+                ch.send(Msg::GpgKeys(rows));
+                ch.send(Msg::Log(format!(
+                    "✔ {}",
+                    tf(
+                        "Analizzate {} chiavi GPG ({} scadute, {} in scadenza).",
+                        &[&total_cnt, &expired_cnt, &soon_cnt],
+                    )
+                )));
+            });
+        }
+
+        let problem_ids: Vec<String> = self
+            .gpg_keys
+            .iter()
+            .filter(|(_, _, _, st, _)| st == "EXPIRED" || st == "EXPIRING")
+            .map(|(kid, _, _, _, _)| kid.clone())
+            .collect();
+
+        if !problem_ids.is_empty() {
+            let ids_joined = problem_ids.join(" ");
+            let renew_script = format!(
+                "KS_LIST='hkps://keyserver.ubuntu.com:443 hkps://keys.openpgp.org hkps://pgp.mit.edu'; \
+                for K in {ids_joined}; do \
+                    echo \"--- Rinnovo chiave: $K ---\"; \
+                    OK=0; \
+                    for KS in $KS_LIST; do \
+                        if gpg --batch --keyserver \"$KS\" --recv-keys \"$K\" >/dev/null 2>&1 || gpg --batch --keyserver \"$KS\" --refresh-keys \"$K\" >/dev/null 2>&1; then \
+                            echo \"OK da $KS per $K\"; \
+                            OK=1; \
+                            break; \
+                        fi; \
+                    done; \
+                    if [ \"$OK\" -eq 0 ]; then \
+                        echo \"AVVISO: chiave $K non trovata o non rinnovata sui keyserver pubblici\"; \
+                        continue; \
+                    fi; \
+                    for D in /etc/apt/keyrings /etc/apt/trusted.gpg.d; do \
+                        [ -d \"$D\" ] || continue; \
+                        for F in \"$D\"/*; do \
+                            [ -f \"$F\" ] || continue; \
+                            if gpg --batch --show-keys \"$F\" 2>/dev/null | grep -qi \"$K\"; then \
+                                if file -b \"$F\" 2>/dev/null | grep -qi 'PGP public key block'; then \
+                                    gpg --batch --armor --export \"$K\" > \"$F.new\" && mv \"$F.new\" \"$F\" && echo \"Aggiornato file ASC: $F\"; \
+                                else \
+                                    gpg --batch --export \"$K\" > \"$F.new\" && mv \"$F.new\" \"$F\" && echo \"Aggiornato file GPG: $F\"; \
+                                fi; \
+                            fi; \
+                        done; \
+                    done; \
+                done; \
+                apt-get update"
+            );
+            self.run_btn(
+                ui,
+                ctx,
+                t("🔁 Rinnova chiavi scadute/in scadenza"),
+                "gpg_keys",
+                &renew_script,
+                true,
+                Some(t("Scaricare/aggiornare dai keyserver le chiavi GPG scadute o in scadenza, aggiornare i file keyring APT e rigenerare l'indice?")),
+            );
+        }
+
+        if self.busy {
+            ui.spinner();
+        }
+    });
+
+    ui.add_space(10.0);
+    ui::card(ui, |ui| {
+        if self.gpg_keys.is_empty() {
+            ui.label(t("Nessuna chiave GPG verificata. Premi 'Verifica chiavi GPG' per controllare la scadenza."));
+        } else {
+            let mut renew_single_script: Option<String> = None;
+            let mut action_script: Option<(String, String)> = None;
+
+            egui::ScrollArea::both().id_salt("gpg_keys_scroll").max_height(260.0).show(ui, |ui| {
+                egui::Grid::new("gpg_keys_grid")
+                    .num_columns(5)
+                    .spacing([12.0, 5.0])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.strong(t("Stato"));
+                        ui.strong(t("Key ID"));
+                        ui.strong(t("Identità / File"));
+                        ui.strong(t("Scadenza"));
+                        ui.strong(t("Azione"));
+                        ui.end_row();
+
+                        for (kid, uid, exp_lbl, status, src_path) in &self.gpg_keys {
+                            let (badge, color) = match status.as_str() {
+                                "EXPIRED" => (t("SCADUTA"), ui::BAD),
+                                "EXPIRING" => (t("IN SCADENZA"), ui::WARN),
+                                _ => (t("VALIDA"), ui::GOOD),
+                            };
+                            ui.label(egui::RichText::new(badge).strong().color(color));
+                            ui.label(egui::RichText::new(kid.as_str()).monospace());
+                            ui.label(egui::RichText::new(uid.as_str())).on_hover_text(src_path.as_str());
+                            ui.label(egui::RichText::new(exp_lbl.as_str()).color(color));
+
+                            if status == "EXPIRED" || status == "EXPIRING" {
+                                ui.horizontal(|ui| {
+                                    if ui.add_enabled(!self.busy, egui::Button::new(t("Rinnova"))).clicked() {
+                                        let qk = util::shq(kid);
+                                        renew_single_script = Some(format!(
+                                            "KS_LIST='hkps://keyserver.ubuntu.com:443 hkps://keys.openpgp.org hkps://pgp.mit.edu'; \
+                                            echo \"--- Rinnovo chiave: {qk} ---\"; \
+                                            OK=0; \
+                                            for KS in $KS_LIST; do \
+                                                if gpg --batch --keyserver \"$KS\" --recv-keys {qk} >/dev/null 2>&1 || gpg --batch --keyserver \"$KS\" --refresh-keys {qk} >/dev/null 2>&1; then \
+                                                    echo \"OK da $KS per {qk}\"; \
+                                                    OK=1; \
+                                                    break; \
+                                                fi; \
+                                            done; \
+                                            if [ \"$OK\" -eq 1 ]; then \
+                                                for D in /etc/apt/keyrings /etc/apt/trusted.gpg.d; do \
+                                                    [ -d \"$D\" ] || continue; \
+                                                    for F in \"$D\"/*; do \
+                                                        [ -f \"$F\" ] || continue; \
+                                                        if gpg --batch --show-keys \"$F\" 2>/dev/null | grep -qi {qk}; then \
+                                                            if file -b \"$F\" 2>/dev/null | grep -qi 'PGP public key block'; then \
+                                                                gpg --batch --armor --export {qk} > \"$F.new\" && mv \"$F.new\" \"$F\" && echo \"Aggiornato file ASC: $F\"; \
+                                                            else \
+                                                                gpg --batch --export {qk} > \"$F.new\" && mv \"$F.new\" \"$F\" && echo \"Aggiornato file GPG: $F\"; \
+                                                            fi; \
+                                                        fi; \
+                                                    done; \
+                                                done; \
+                                            else \
+                                                echo \"AVVISO: chiave {qk} non trovata o non rinnovata sui keyserver pubblici\"; \
+                                            fi; \
+                                            apt-get update"
+                                        ));
+                                    }
+                                    if ui.add_enabled(!self.busy, egui::Button::new(t("Disabilita"))).clicked() {
+                                        let qk = util::shq(kid);
+                                        let qp = util::shq(src_path);
+                                        let dis_script = format!(
+                                            "mkdir -p /etc/apt/keyrings.disabled /etc/apt/trusted.gpg.d.disabled && \
+                                            if [ -f {qp} ] && [ \"{qp}\" != \"/etc/apt/trusted.gpg\" ]; then \
+                                                BN=$(basename {qp}); \
+                                                DIR=$(dirname {qp}); \
+                                                if [ \"$DIR\" = \"/etc/apt/keyrings\" ]; then \
+                                                    mv {qp} \"/etc/apt/keyrings.disabled/$BN\" && echo \"Spostato file chiave in /etc/apt/keyrings.disabled/$BN\"; \
+                                                elif [ \"$DIR\" = \"/etc/apt/trusted.gpg.d\" ]; then \
+                                                    mv {qp} \"/etc/apt/trusted.gpg.d.disabled/$BN\" && echo \"Spostato file chiave in /etc/apt/trusted.gpg.d.disabled/$BN\"; \
+                                                fi; \
+                                            fi && \
+                                            for SF in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do \
+                                                [ -f \"$SF\" ] || continue; \
+                                                if grep -qE \"$(basename {qp})|{qk}\" \"$SF\" 2>/dev/null; then \
+                                                    sed -i -E 's/^([[:space:]]*[^#])/\\# \\1/' \"$SF\" && echo \"Commentato repository in: $SF\"; \
+                                                fi; \
+                                            done && \
+                                            apt-get update"
+                                        );
+                                        let confirm_msg = tf(
+                                            "Disabilitare la chiave {} e commentare i repository associati in /etc/apt/sources.list*?",
+                                            &[kid],
+                                        );
+                                        action_script = Some((confirm_msg, dis_script));
+                                    }
+                                });
+                            } else {
+                                ui.label("-");
+                            }
+                            ui.end_row();
+                        }
+                    });
+            });
+
+            if let Some(cmd) = renew_single_script {
+                let job = crate::cmd_job("gpg_keys", cmd, true);
+                self.spawn(ctx, job);
+            }
+            if let Some((msg, cmd)) = action_script {
+                let job = crate::cmd_job("gpg_keys", cmd, true);
+                self.confirm = Some((msg, job));
+            }
+        }
+    });
+
+    ui.add_space(10.0);
+    ui::card(ui, |ui| {
+        ui.strong(t("Chiavi e repository disabilitati"));
+        ui.add_space(6.0);
+
+        let mut disabled_keys: Vec<(String, String, String)> = Vec::new();
+        for (dis_dir, active_dir) in [
+            ("/etc/apt/keyrings.disabled", "/etc/apt/keyrings"),
+            ("/etc/apt/trusted.gpg.d.disabled", "/etc/apt/trusted.gpg.d"),
+        ] {
+            if let Ok(entries) = std::fs::read_dir(dis_dir) {
+                for e in entries.flatten() {
+                    let p = e.path();
+                    if p.is_file() {
+                        let fname = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+                        let target = format!("{active_dir}/{fname}");
+                        disabled_keys.push((fname, p.to_string_lossy().to_string(), target));
+                    }
+                }
+            }
+        }
+        disabled_keys.sort_by(|a, b| a.0.cmp(&b.0));
+
+        if disabled_keys.is_empty() {
+            ui.label(t("Nessuna chiave o repository disabilitato trovato in .disabled."));
+        } else {
+            let mut reenable_action: Option<(String, String)> = None;
+            egui::Grid::new("gpg_disabled_grid")
+                .num_columns(3)
+                .spacing([12.0, 5.0])
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.strong(t("File chiave"));
+                    ui.strong(t("Percorso disabilitato"));
+                    ui.strong(t("Azione"));
+                    ui.end_row();
+
+                    for (fname, dis_path, active_path) in &disabled_keys {
+                        ui.label(egui::RichText::new(fname.as_str()).monospace());
+                        ui.label(egui::RichText::new(dis_path.as_str()).color(ui::TEXT_DIM));
+                        if ui.add_enabled(!self.busy, egui::Button::new(t("Riabilita"))).clicked() {
+                            let qf = util::shq(fname);
+                            let qdis = util::shq(dis_path);
+                            let qact = util::shq(active_path);
+                            let en_script = format!(
+                                "mkdir -p /etc/apt/keyrings /etc/apt/trusted.gpg.d && \
+                                if [ -f {qdis} ]; then \
+                                    mv {qdis} {qact} && echo \"Ripristinato file chiave in: {qact}\"; \
+                                fi && \
+                                for SF in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do \
+                                    [ -f \"$SF\" ] || continue; \
+                                    if grep -qE \"{qf}\" \"$SF\" 2>/dev/null; then \
+                                        sed -i -E 's/^[[:space:]]*#[[:space:]]*//' \"$SF\" && echo \"Decommentato repository in: $SF\"; \
+                                    fi; \
+                                done && \
+                                apt-get update"
+                            );
+                            let confirm_msg = tf(
+                                "Riabilitare la chiave {} e decommentare i repository associati in /etc/apt/sources.list*?",
+                                &[fname],
+                            );
+                            reenable_action = Some((confirm_msg, en_script));
+                        }
+                        ui.end_row();
+                    }
+                });
+
+            if let Some((msg, cmd)) = reenable_action {
+                let job = crate::cmd_job("gpg_keys", cmd, true);
+                self.confirm = Some((msg, job));
+            }
+        }
+    });
+
+    self.show_out(ui, "gpg_keys", 180.0);
+}
+// ----- Audit Repository APT (Duplicati, Signed-By rotti, Disabilitati)
+    pub fn ui_apt_sources_audit(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui::title(ui, t("Audit Repository APT"));
+        ui::hint(
+            ui,
+            t("Scansiona /etc/apt/sources.list e /etc/apt/sources.list.d/* per individuare repository duplicati, Signed-By mancanti o non validi e sorgenti disabilitate."),
+        );
+
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            if ui.add_enabled(!self.busy, egui::Button::new(t("🔍 Scansiona repository APT"))).clicked() {
+                self.spawn(ctx, move |ch| {
+                    ch.send(Msg::Log("▶ Scansione sorgenti APT in /etc/apt/sources.list*...".into()));
+
+                    let mut files: Vec<std::path::PathBuf> = Vec::new();
+                    let main_list = std::path::PathBuf::from("/etc/apt/sources.list");
+                    if main_list.is_file() {
+                        files.push(main_list);
+                    }
+                    if let Ok(entries) = std::fs::read_dir("/etc/apt/sources.list.d") {
+                        let mut sub_files: Vec<std::path::PathBuf> = entries
+                            .flatten()
+                            .map(|e| e.path())
+                            .filter(|p| {
+                                p.is_file()
+                                    && matches!(
+                                        p.extension().and_then(|s| s.to_str()),
+                                        Some("list") | Some("sources")
+                                    )
+                            })
+                            .collect();
+                        sub_files.sort();
+                        files.extend(sub_files);
+                    }
+
+                    let mut seen_repos: std::collections::HashSet<String> = std::collections::HashSet::new();
+                    let mut issues = 0usize;
+                    let mut report = String::new();
+
+                    for fpath in files {
+                        let Ok(content) = std::fs::read_to_string(&fpath) else {
+                            continue;
+                        };
+                        let fstr = fpath.to_string_lossy().to_string();
+
+                        for (idx, raw_line) in content.lines().enumerate() {
+                            let line_no = idx + 1;
+                            let trimmed = raw_line.trim();
+                            if trimmed.is_empty() {
+                                continue;
+                            }
+
+                            // Righe commentate con #
+                            if trimmed.starts_with('#') {
+                                let unhashed = trimmed.trim_start_matches('#').trim();
+                            if unhashed.starts_with("deb ") || unhashed.starts_with("deb-src ") || unhashed.starts_with("URIs:") {
+                                    issues += 1;
+                                    let line_msg = format!("⚠ [DISABILITATO] {fstr}:{line_no} -> {trimmed}");
+                                    report.push_str(&line_msg);
+                                    report.push('\n');
+                                    ch.send(Msg::Log(line_msg));
+                                }
+                                continue;
+                            }
+
+                            // Verifica Signed-By se presente nella riga
+                            if let Some(pos) = trimmed.find("signed-by=") {
+                                let after = &trimmed[pos + "signed-by=".len()..];
+                                let key_path = after
+                                    .split(|c: char| c == ' ' || c == ']' || c == ',')
+                                    .next()
+                                    .unwrap_or("")
+                                    .trim();
+                            if key_path.is_empty() || !std::path::Path::new(key_path).is_file() {
+                                    issues += 1;
+                                    let line_msg = format!("✘ [SIGNED-BY ROTTO] {fstr}:{line_no} -> file mancante: {key_path}");
+                                    report.push_str(&line_msg);
+                                    report.push('\n');
+                                    ch.send(Msg::Log(line_msg));
+                                } else {
+                                    let ok = std::process::Command::new("gpg")
+                                        .args(["--batch", "--show-keys", key_path])
+                                        .output()
+                                        .map(|o| o.status.success() && !o.stdout.is_empty())
+                                        .unwrap_or(false);
+                                    if !ok {
+                                        issues += 1;
+                                        let line_msg = format!("✘ [KEYRING NON VALIDO] {fstr}:{line_no} -> {key_path}");
+                                        report.push_str(&line_msg);
+                                        report.push('\n');
+                                        ch.send(Msg::Log(line_msg));
+                                    }
+                                }
+                            }
+
+                            // Estrai chiave normalizzata per rilevare duplicati
+                            let norm_repo = if trimmed.starts_with("deb ") || trimmed.starts_with("deb-src ") {
+                                let without_opts = if let Some(rb) = trimmed.find(']') {
+                                    trimmed[rb + 1..].trim()
+                                } else {
+                                    trimmed.trim_start_matches("deb-src ").trim_start_matches("deb ").trim()
+                                };
+                                Some(without_opts.to_string())
+                            } else if trimmed.starts_with("URIs:") {
+                                Some(trimmed.trim_start_matches("URIs:").trim().to_string())
+                            } else {
+                                None
+                            };
+
+                        if let Some(repo_key) = norm_repo {
+                                if !seen_repos.insert(repo_key.clone()) {
+                                    issues += 1;
+                                    let line_msg = format!("⚠ [DUPLICATO] {fstr}:{line_no} -> {repo_key}");
+                                    report.push_str(&line_msg);
+                                    report.push('\n');
+                                    ch.send(Msg::Log(line_msg));
+                                }
+                            }
+                        
+                        }
+                    }
+
+                    if issues == 0 {
+                        let ok_msg = "✔ Nessuna anomalia rilevata nei file sorgente APT.";
+                        report.push_str(ok_msg);
+                        report.push('\n');
+                        ch.send(Msg::Log(ok_msg.into()));
+                    } else {
+                        ch.send(Msg::Log(format!("✔ Scansione completata: {issues} segnalazioni trovate.")));
+                    }
+                    ch.send(Msg::Out("apt_sources_audit", report));
+                    
+                });
+            }
+
+            if self.busy {
+                ui.spinner();
+            }
+        });
+
+        ui.add_space(10.0);
+        ui::card(ui, |ui| {
+            ui.strong(t("Intervento rapido su file o riga sorgente APT"));
+            ui.add_space(6.0);
+
+            ui.horizontal(|ui| {
+                ui.label(t("File sorgente:"));
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.apt_audit_file)
+                        .desired_width(320.0)
+                        .hint_text("/etc/apt/sources.list.d/esempio.list"),
+                );
+            });
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label(t("Pattern / Riga:"));
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.apt_audit_pattern)
+                        .desired_width(320.0)
+                        .hint_text("es. ppa.launchpadcontent.net o buster"),
+                );
+            });
+
+            let f_trimmed = self.apt_audit_file.trim();
+            let p_trimmed = self.apt_audit_pattern.trim();
+            let valid_file = f_trimmed.starts_with("/etc/apt/")
+                && (f_trimmed == "/etc/apt/sources.list" || f_trimmed.starts_with("/etc/apt/sources.list.d/"));
+            let can_act = valid_file && !p_trimmed.is_empty() && !self.busy;
+
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                let qf = util::shq(f_trimmed);
+                let qp = util::shq(p_trimmed);
+
+                if ui.add_enabled(can_act, egui::Button::new(t("💬 Commenta righe"))).clicked() {
+                    let cmd = format!(
+                        "grep -nF {qp} {qf} >/dev/null 2>&1 && sed -i -E \"s/^([[:space:]]*[^#].*$(printf '%s' {qp} | sed 's/[][\\\\/.*^$]/\\\\&/g'))/# \\\\1/\" {qf} && apt-get update"
+                    );
+                    let msg = tf("Commentare le righe corrispondenti a '{}' in {} e aggiornare APT?", &[&p_trimmed, &f_trimmed]);
+                    self.confirm = Some((msg, crate::cmd_job("apt_sources_audit", cmd, true)));
+                }
+
+                if ui.add_enabled(can_act, egui::Button::new(t("🗑 Rimuovi righe"))).clicked() {
+                    let cmd = format!(
+                        "grep -nF {qp} {qf} >/dev/null 2>&1 && sed -i -E \"/\\b$(printf '%s' {qp} | sed 's/[][\\\\/.*^$]/\\\\&/g')\\b/d\" {qf} && apt-get update"
+                    );
+                    let msg = tf("Rimuovere definitivamente le righe corrispondenti a '{}' da {} e aggiornare APT?", &[&p_trimmed, &f_trimmed]);
+                    self.confirm = Some((msg, crate::cmd_job("apt_sources_audit", cmd, true)));
+                }
+            });
+        });
+
+        self.show_out(ui, "apt_sources_audit", 200.0);
     }
 }

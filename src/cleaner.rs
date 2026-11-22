@@ -1,5 +1,6 @@
 use crate::util::{home, run_shell, tail};
 use std::path::{Path, PathBuf};
+use std::fs;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Kind {
@@ -13,6 +14,11 @@ pub enum Kind {
     OldLogs,
     UserCache,
     Trash,
+    Thumbnails,
+    DiscordCache,
+    TelegramCache,
+    SteamCache,
+    SlackCache,
 }
 
 pub struct CleanItem {
@@ -30,12 +36,14 @@ const BROWSER_CACHE: [&str; 4] = [
     ".cache/BraveSoftware",
 ];
 
-const BROWSER_DATA_CMD: &str = "rm -f \"$HOME\"/.mozilla/firefox/*/cookies.sqlite \
-\"$HOME\"/.mozilla/firefox/*/places.sqlite \
-\"$HOME\"/.config/google-chrome/Default/History \
-\"$HOME\"/.config/google-chrome/Default/Cookies \
-\"$HOME\"/.config/chromium/Default/History \
-\"$HOME\"/.config/chromium/Default/Cookies";
+const BROWSER_DATA_CMD: &str = "rm -f \
+\"$HOME\"/.mozilla/firefox/*/cookies.sqlite* \
+\"$HOME\"/.config/google-chrome/*/History* \
+\"$HOME\"/.config/google-chrome/*/Cookies* \
+\"$HOME\"/.config/chromium/*/History* \
+\"$HOME\"/.config/chromium/*/Cookies* \
+\"$HOME\"/.config/BraveSoftware/Brave-Browser/*/History* \
+\"$HOME\"/.config/BraveSoftware/Brave-Browser/*/Cookies*";
 
 pub fn items() -> Vec<CleanItem> {
     let mk = |kind, name, desc, selected| CleanItem { kind, name, desc, selected, size: None };
@@ -48,8 +56,13 @@ pub fn items() -> Vec<CleanItem> {
         mk(Kind::Ram, "Cache della RAM", "Svuota page cache e buffer temporanei (richiede password)", false),
         mk(Kind::Journal, "Log del journal", "Mantiene solo gli ultimi 7 giorni di log systemd (richiede password)", true),
         mk(Kind::OldLogs, "Log obsoleti in /var/log", "File ruotati e compressi (.gz, .1, .old) (richiede password)", true),
-        mk(Kind::UserCache, "Cache utente", "Contenuto di ~/.cache (miniature, cache delle app)", true),
+        mk(Kind::UserCache, "Cache utente", "Contenuto di ~/.cache (esclude cartelle sensibili)", false),
         mk(Kind::Trash, "Cestino", "File nel cestino dell'utente", true),
+        mk(Kind::Thumbnails, "Miniature (Thumbnails)", "Cache delle miniature di immagini e video (Nautilus/Dolphin)", true),
+        mk(Kind::DiscordCache, "Cache Discord", "File temporanei e cache accumulati da Discord", false),
+        mk(Kind::TelegramCache, "Cache Telegram", "File temporanei e cache multimediali di Telegram Desktop", false),
+        mk(Kind::SteamCache, "Cache Steam", "File di cache e depot temporanei di Steam", false),
+        mk(Kind::SlackCache, "Cache Slack", "File temporanei e cache accumulati da Slack", false),
     ]
 }
 
@@ -106,6 +119,21 @@ pub fn size(kind: Kind) -> Option<u64> {
         Kind::OldLogs => Some(old_logs_size(Path::new("/var/log"))),
         Kind::UserCache => Some(dir_size(&h.join(".cache"))),
         Kind::Trash => Some(dir_size(&h.join(".local/share/Trash"))),
+        Kind::Thumbnails => Some(dir_size(&h.join(".cache/thumbnails"))),
+        Kind::DiscordCache => Some(
+            dir_size(&h.join(".config/discord/Cache"))
+                + dir_size(&h.join(".config/discord/Code Cache"))
+                + dir_size(&h.join(".config/discord/GPUCache"))
+        ),
+        Kind::TelegramCache => Some(dir_size(&h.join(".local/share/TelegramDesktop/tdata/user_data/cache"))),
+        Kind::SteamCache => Some(
+            dir_size(&h.join(".local/share/Steam/appcache"))
+                + dir_size(&h.join(".local/share/Steam/depotcache"))
+        ),
+        Kind::SlackCache => Some(
+            dir_size(&h.join(".config/Slack/Cache"))
+                + dir_size(&h.join(".config/Slack/Code Cache"))
+        ),
         _ => None,
     }
 }
@@ -132,6 +160,29 @@ fn remove_contents(p: &Path) -> usize {
     errors
 }
 
+fn remove_user_cache_contents(p: &Path) -> usize {
+    const SKIP: &[&str] = &["keyrings", "gnupg", "ssh", "dconf", "ibus", "thumbnails"];
+    let mut errors = 0;
+    if let Ok(rd) = std::fs::read_dir(p) {
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if SKIP.contains(&name.as_str()) {
+                continue;
+            }
+            let path = e.path();
+            let res = match path.symlink_metadata() {
+                Ok(md) if md.is_dir() => std::fs::remove_dir_all(&path),
+                Ok(_) => std::fs::remove_file(&path),
+                Err(err) => Err(err),
+            };
+            if res.is_err() {
+                errors += 1;
+            }
+        }
+    }
+    errors
+}
+
 fn priv_cmd(kind: Kind) -> Option<&'static str> {
     match kind {
         Kind::Temp => Some("find /tmp /var/tmp -mindepth 1 -mtime +2 -delete 2>/dev/null"),
@@ -146,8 +197,6 @@ fn priv_cmd(kind: Kind) -> Option<&'static str> {
     }
 }
 
-/// Esegue le pulizie scelte. Le operazioni da root sono raggruppate
-/// in un'unica chiamata, quindi la password viene chiesta una sola volta.
 pub fn clean_all(kinds: &[Kind]) -> Vec<String> {
     let mut log = Vec::new();
     let privs: Vec<&str> = kinds.iter().filter_map(|k| priv_cmd(*k)).collect();
@@ -168,13 +217,38 @@ pub fn clean_all(kinds: &[Kind]) -> Vec<String> {
                 log.push(format!("{} Cronologia e cookie dei browser", if ok { "✔" } else { "✘" }));
             }
             Kind::UserCache => {
-                let e = remove_contents(&h.join(".cache"));
+                let e = remove_user_cache_contents(&h.join(".cache"));
                 log.push(format!("✔ Cache utente svuotata ({e} elementi non rimovibili)"));
             }
             Kind::Trash => {
                 let t = h.join(".local/share/Trash");
                 let e = remove_contents(&t.join("files")) + remove_contents(&t.join("info"));
                 log.push(format!("✔ Cestino svuotato ({e} elementi non rimovibili)"));
+            }
+            Kind::Thumbnails => {
+                let e = remove_contents(&h.join(".cache/thumbnails"));
+                log.push(format!("✔ Miniature pulite ({e} elementi non rimovibili)"));
+            }
+            Kind::DiscordCache => {
+                let base = h.join(".config/discord");
+                let e = remove_contents(&base.join("Cache"))
+                    + remove_contents(&base.join("Code Cache"))
+                    + remove_contents(&base.join("GPUCache"));
+                log.push(format!("✔ Cache Discord pulita ({e} elementi non rimovibili)"));
+            }
+            Kind::TelegramCache => {
+                let e = remove_contents(&h.join(".local/share/TelegramDesktop/tdata/user_data/cache"));
+                log.push(format!("✔ Cache Telegram pulita ({e} elementi non rimovibili)"));
+            }
+            Kind::SteamCache => {
+                let base = h.join(".local/share/Steam");
+                let e = remove_contents(&base.join("appcache")) + remove_contents(&base.join("depotcache"));
+                log.push(format!("✔ Cache Steam pulita ({e} elementi non rimovibili)"));
+            }
+            Kind::SlackCache => {
+                let base = h.join(".config/Slack");
+                let e = remove_contents(&base.join("Cache")) + remove_contents(&base.join("Code Cache"));
+                log.push(format!("✔ Cache Slack pulita ({e} elementi non rimovibili)"));
             }
             _ => {}
         }
@@ -195,4 +269,281 @@ pub fn fmt_bytes(b: u64) -> String {
     } else {
         format!("{v:.1} {}", U[i])
     }
+}
+
+pub fn scan_rc_pkgs() -> Vec<(String, bool)> {
+    let mut pkgs = Vec::new();
+    if let Ok(output) = std::process::Command::new("dpkg-query").args(["-W", "-f=${Status} ${Package}\n"]).output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.starts_with("rc ") {
+                if let Some(pkg) = line.split_whitespace().nth(1) {
+                    pkgs.push((pkg.to_string(), true));
+                }
+            }
+        }
+    }
+    pkgs
+}
+
+pub fn scan_flatpak_unused() -> Vec<(String, bool)> {
+    let mut list = Vec::new();
+    if let Ok(output) = std::process::Command::new("flatpak").args(["uninstall", "--unused", "--assumeyes", "--dry-run"]).output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let line = line.trim();
+            if !line.is_empty() && (line.contains('/') || line.contains("Ref:")) {
+                let name = line.split_whitespace().next().unwrap_or(line).to_string();
+                list.push((name, true));
+            }
+        }
+    }
+    list
+}
+
+// --- NUOVE FUNZIONI DI PULIZIA AVANZATA ---
+
+/// Scansiona file di backup di configurazione dimenticati (.dpkg-bak, .dpkg-old, .pacsave, ecc.) in /etc
+pub fn scan_config_backups() -> Vec<(PathBuf, bool)> {
+    let mut list = Vec::new();
+    let target_dir = Path::new("/etc");
+    if let Ok(entries) = walkdir_simple(target_dir, 3) {
+        for path in entries {
+            if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                if matches!(ext, "dpkg-bak" | "dpkg-old" | "dpkg-dist" | "ucf-old" | "pacsave" | "pacnew") {
+                    list.push((path, true));
+                }
+            }
+        }
+    }
+    list
+}
+
+/// Scansiona versioni disabilitate di pacchetti Snap (snap list --all)
+pub fn scan_disabled_snaps() -> Vec<(String, bool)> {
+    let mut list = Vec::new();
+    if let Ok(output) = std::process::Command::new("snap").args(["list", "--all"]).output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines().skip(1) {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 4 && parts[3] == "-" { // Inattivo/disabilitato
+                let name = format!("{} (rev {})", parts[0], parts[1]);
+                list.push((name, true));
+            }
+        }
+    }
+    list
+}
+
+/// Scansiona cartelle ~/.config orfane di programmi non più installati
+pub fn scan_orphan_configs() -> Vec<(PathBuf, bool)> {
+    let mut list = Vec::new();
+    let h = PathBuf::from(home());
+    let config_dir = h.join(".config");
+    
+    if let Ok(rd) = fs::read_dir(config_dir) {
+        for entry in rd.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+                    // Controlla se esiste il rispettivo comando o pacchetto installato
+                    let which_check = std::process::Command::new("which").arg(name).status();
+                    let dpkg_check = std::process::Command::new("dpkg-query").args(["-s", name]).status();
+                    
+                    let is_installed = which_check.map(|s| s.success()).unwrap_or(false)
+                        || dpkg_check.map(|s| s.success()).unwrap_or(false);
+
+                    if !is_installed {
+                        list.push((path, true));
+                    }
+                }
+            }
+        }
+    }
+    list
+}
+
+// Funzione di supporto per scansionare ricorsivamente fino a una certa profondità
+fn walkdir_simple(dir: &Path, max_depth: usize) -> Result<Vec<PathBuf>, std::io::Error> {
+    let mut results = Vec::new();
+    if max_depth == 0 {
+        return Ok(results);
+    }
+    if let Ok(rd) = fs::read_dir(dir) {
+        for entry in rd.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Ok(sub) = walkdir_simple(&path, max_depth - 1) {
+                    results.extend(sub);
+                }
+            } else {
+                results.push(path);
+            }
+        }
+    }
+    Ok(results)
+}
+
+pub fn purge_rc_pkgs(pkgs: &[String]) -> bool {
+    if pkgs.is_empty() {
+        return true;
+    }
+    let mut args = vec!["purge", "-y"];
+    args.extend(pkgs.iter().map(|s| s.as_str()));
+    let status = std::process::Command::new("apt-get").args(&args).status();
+    status.map(|s| s.success()).unwrap_or(false)
+}
+
+pub fn remove_unused_flatpaks() -> bool {
+    let status = std::process::Command::new("flatpak").args(["uninstall", "--unused", "-y"]).status();
+    status.map(|s| s.success()).unwrap_or(false)
+}
+
+pub fn remove_config_backups(files: &[PathBuf]) -> bool {
+    files.iter().all(|file| fs::remove_file(file).is_ok())
+}
+
+pub fn remove_disabled_snaps(snaps: &[String]) -> bool {
+    snaps.iter().all(|item| {
+        if let Some(idx) = item.find(" (rev ") {
+            let name = &item[..idx];
+            let rev_part = &item[idx + 6..];
+            if let Some(end_idx) = rev_part.find(')') {
+                let rev = &rev_part[..end_idx];
+                return std::process::Command::new("sudo")
+                    .args(["snap", "remove", name, "--revision", rev])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+            }
+        }
+        false
+    })
+}
+
+pub fn remove_orphan_configs(dirs: &[PathBuf]) -> bool {
+    let mut success = true;
+    for dir in dirs {
+        if fs::remove_dir_all(dir).is_err() {
+            success = false;
+        }
+    }
+    success
+}
+
+// --- OTTIMIZZAZIONE DATABASE SQLITE BROWSER ---
+
+/// Controlla se un processo browser è attualmente in esecuzione
+fn is_browser_running(process_names: &[&str]) -> bool {
+    for name in process_names {
+        if let Ok(out) = std::process::Command::new("pgrep").arg("-x").arg(name).output() {
+            if out.status.success() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Raccoglie ricorsivamente tutti i file SQLite rilevanti per i browser
+fn find_browser_sqlite_dbs(dir: &Path, dbs: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            // Evitiamo ricorsioni superflue saltando cartelle pesanti non pertinenti
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name != "Cache" && name != "Code Cache" && name != "GPUCache" {
+                    find_browser_sqlite_dbs(&path, dbs);
+                }
+            }
+        } else if let Some(fname) = path.file_name().and_then(|n| n.to_str()) {
+            let is_firefox_db = fname.ends_with(".sqlite");
+            let is_chromium_db = matches!(
+                fname,
+                "History" | "Web Data" | "Cookies" | "Favicons" | "Top Sites" | "Shortcuts"
+            );
+            if is_firefox_db || is_chromium_db {
+                dbs.push(path);
+            }
+        }
+    }
+}
+
+/// Esegue VACUUM e REINDEX sui database dei browser chiusi
+pub fn optimize_browser_databases() -> Vec<String> {
+    let mut logs = Vec::new();
+
+    // Verifica la presenza dell'eseguibile sqlite3 sul sistema
+    if std::process::Command::new("sqlite3").arg("--version").output().is_err() {
+        logs.push("✘ Comando 'sqlite3' non trovato sul sistema. Installalo con: sudo apt install sqlite3".into());
+        return logs;
+    }
+
+    let h = PathBuf::from(home());
+    // Definizione dei browser supportati: (Nome, processi da controllare, percorsi relativi dei profili)
+    let browsers: &[(&str, &[&str], &[&str])] = &[
+        ("Firefox", &["firefox", "firefox-bin", "firefox-esr"], &[".mozilla/firefox"]),
+        ("Google Chrome", &["chrome", "google-chrome"], &[".config/google-chrome"]),
+        ("Chromium", &["chromium", "chromium-browser"], &[".config/chromium"]),
+        ("Brave", &["brave", "brave-browser"], &[".config/BraveSoftware/Brave-Browser"]),
+    ];
+
+    let mut total_saved: u64 = 0;
+    let mut optimized_count: usize = 0;
+
+    for (name, procs, paths) in browsers {
+        // Controllo di sicurezza: se il browser è attivo, saltiamo l'ottimizzazione per evitare blocchi o corruzione
+        if is_browser_running(procs) {
+            logs.push(format!("⚠ {name} è in esecuzione: chiudilo prima di ottimizzare i database SQLite."));
+            continue;
+        }
+
+        let mut dbs = Vec::new();
+        for rel_path in *paths {
+            let full_path = h.join(rel_path);
+            if full_path.exists() {
+                find_browser_sqlite_dbs(&full_path, &mut dbs);
+            }
+        }
+
+        if dbs.is_empty() {
+            continue;
+        }
+
+        let mut browser_optimized = 0;
+        for db in dbs {
+            let before = fs::metadata(&db).map(|m| m.len()).unwrap_or(0);
+            let res = std::process::Command::new("sqlite3")
+                .arg(&db)
+                .arg("VACUUM; REINDEX;")
+                .output();
+
+            if let Ok(out) = res {
+                if out.status.success() {
+                    let after = fs::metadata(&db).map(|m| m.len()).unwrap_or(0);
+                    if before > after {
+                        total_saved += before - after;
+                    }
+                    browser_optimized += 1;
+                    optimized_count += 1;
+                }
+            }
+        }
+
+        if browser_optimized > 0 {
+            logs.push(format!("✔ {name}: ottimizzati {browser_optimized} database SQLite (VACUUM & REINDEX completati)."));
+        }
+    }
+
+    if optimized_count > 0 {
+        logs.push(format!(
+            "✔ Pulizia profonda browser completata: compattati {optimized_count} database (spazio recuperato: {}).",
+            fmt_bytes(total_saved)
+        ));
+    } else if logs.is_empty() {
+        logs.push("ℹ Nessun database SQLite di browser trovato o idoneo all'ottimizzazione.".into());
+    }
+
+    logs
 }

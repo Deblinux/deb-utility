@@ -250,6 +250,7 @@ impl App {
     pub(crate) fn ui_dashboard(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> Option<Page> {
         let mut goto: Option<Page> = None;
         ui::title(ui, "Dashboard");
+        self.ui_slow_diag(ui, ctx, &mut goto);
 
         let problems = self.checks.iter().filter(|c| c.status == health::Status::Problem).count();
         let warns = self.checks.iter().filter(|c| c.status == health::Status::Warn).count();
@@ -262,7 +263,6 @@ impl App {
         } else {
             (ui::GOOD, t("Il sistema è in buono stato").to_string(), t("Nessun problema rilevato.").to_string(), true)
         };
-
         ui::card(ui, |ui| {
             ui.horizontal(|ui| {
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(112.0, 112.0), egui::Sense::hover());
@@ -283,8 +283,15 @@ impl App {
                 ui.vertical(|ui| {
                     ui.label(egui::RichText::new(head).size(27.0).strong().color(egui::Color32::WHITE));
                     ui.label(egui::RichText::new(sub).size(17.0).color(ui::TEXT_DIM));
-                    ui.add_space(10.0);
-                    ui.horizontal(|ui| {
+ui.add_space(14.0);
+
+ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 16.0;
+                        let btns_w = 235.0_f32 + 16.0 + 215.0;
+                        let extra = ((ui.available_width() - btns_w) * 0.5).max(0.0);
+                        if extra > 0.0 {
+                            ui.add_space(extra);
+                        }
                         if ui::primary_button(ui, t("Ottimizza ora"), !self.busy).clicked() {
                             let kinds: Vec<cleaner::Kind> =
                                 self.items.iter().filter(|i| i.selected).map(|i| i.kind).collect();
@@ -296,32 +303,51 @@ impl App {
                                 ch.send(Msg::Checks(health::run_checks()));
                             });
                         }
-                        if ui.add_enabled(!self.busy, egui::Button::new(t("Diagnosi completa"))).clicked() {
+                        let sec_btn = egui::Button::new(
+                            egui::RichText::new(t("Diagnosi completa")).strong().size(18.0),
+                        )
+                        .min_size(egui::vec2(215.0, 50.0))
+                        .rounding(egui::Rounding::same(12.0));
+                        if ui.add_enabled(!self.busy, sec_btn).clicked() {
                             goto = Some(Page::Fixer);
                         }
+
                         if self.busy {
                             ui.spinner();
                         }
                     });
+                   
                 });
             });
         });
-
         ui.add_space(10.0);
-        ui.horizontal_wrapped(|ui| {
-            for (p, ti, su) in [
-                (Page::Cleaner, "Pulizia", "Libera spazio su disco"),
-                (Page::Fixer, "Fixer", "Ripara gli errori di sistema"),
-                (Page::Repos, "Driver", "Rileva e installa i driver"),
-                (Page::Disk, "Disco", "Salute e spazio"),
-                (Page::Backup, "Backup", "Proteggi i tuoi dati"),
-                (Page::Firewall, "Sicurezza", "Firewall e porte"),
-            ] {
-                if ui::tile(ui, p, ti, su) {
-                    goto = Some(p);
+        ui.spacing_mut().item_spacing = egui::vec2(12.0, 12.0);
+
+let tile_w = 290.0_f32;
+        let gap = 12.0_f32;
+        let cols = ((ui.available_width() + gap) / (tile_w + gap)).floor().max(1.0) as usize;
+        let items = [
+            (Page::Cleaner, "Pulizia", "Libera spazio su disco"),
+            (Page::Fixer, "Fixer", "Ripara gli errori di sistema"),
+            (Page::Repos, "Driver", "Rileva e installa i driver"),
+            (Page::Disk, "Disco", "Salute e spazio"),
+            (Page::Backup, "Backup", "Proteggi i tuoi dati"),
+            (Page::Firewall, "Sicurezza", "Firewall e porte"),
+        ];
+        for chunk in items.chunks(cols) {
+            let row_w = chunk.len() as f32 * tile_w + chunk.len().saturating_sub(1) as f32 * gap;
+            let pad = ((ui.available_width() - row_w) * 0.5).max(0.0);
+            ui.horizontal(|ui| {
+                if pad > 0.0 {
+                    ui.add_space(pad);
                 }
-            }
-        });
+                for &(p, ti, su) in chunk {
+                    if ui::tile(ui, p, ti, su) {
+                        goto = Some(p);
+                    }
+                }
+            });
+        }
 
         ui.add_space(10.0);
         let i = &self.info;
@@ -338,8 +364,15 @@ impl App {
             }
             None => (0.0, "n/d".to_string()),
         };
-        ui::card(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
+ui::card(ui, |ui| {
+            let gap_x = ui.spacing().item_spacing.x;
+            let gauge_w = 184.0_f32;
+            let row_w = 4.0 * gauge_w + 3.0 * gap_x;
+            ui.horizontal(|ui| {
+                let avail = ui.available_width();
+                if avail > row_w {
+                    ui.add_space((avail - row_w) * 0.5);
+                }
                 ui::gauge(ui, cpu, "CPU", &format!("{} thread", i.cpu.threads));
                 ui::gauge(
                     ui,
@@ -921,6 +954,15 @@ impl App {
     }
 
 pub(crate) fn ui_about(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
+        ui.vertical_centered(|ui| {
+            ui.add_space(10.0);
+            ui.add(
+                egui::Image::new(egui::include_image!("../assets/debclean.png"))
+                    .max_size(egui::vec2(72.0, 72.0)),
+            );
+            ui.add_space(10.0);
+        });
+        
         ui::title(ui, t("Informazioni su DebClean"));
         
         ui::card(ui, |ui| {
