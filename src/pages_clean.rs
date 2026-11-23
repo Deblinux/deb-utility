@@ -137,23 +137,28 @@ fn battery_health() -> Option<BatteryHealth> {
     None
 }
 
-fn find_list(script: &str) -> Vec<Found> {
+fn find_list(script: &str, default_sel: bool) -> Vec<Found> {
     let (_, o) = util::run_shell(script, false);
-    o.lines().filter(|l| !l.trim().is_empty()).map(|l| Found { path: l.to_string(), sel: true }).collect()
+    o.lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| Found { path: l.to_string(), sel: default_sel })
+        .collect()
 }
 
 fn scan_dirs(hidden: bool) -> Vec<Found> {
     let excl = if hidden { "" } else { "-not -path '*/.*'" };
-    find_list(&format!(
-        "find \"$HOME\" -xdev -mindepth 1 -type d -empty {excl} 2>/dev/null | head -3000"
-    ))
+    find_list(
+        &format!("find \"$HOME\" -xdev -mindepth 1 -type d -empty {excl} 2>/dev/null | head -3000"),
+        true,
+    )
 }
 
 fn scan_files(hidden: bool) -> Vec<Found> {
     let excl = if hidden { "" } else { "-not -path '*/.*'" };
-    find_list(&format!(
-        "find \"$HOME\" -xdev -type f -size 0 {excl} -not -name '__init__.py' 2>/dev/null | head -3000"
-    ))
+    find_list(
+        &format!("find \"$HOME\" -xdev -type f -size 0 {excl} -not -name '__init__.py' 2>/dev/null | head -3000"),
+        false,
+    )
 }
 
 fn delete_job(dirs: bool, hidden: bool, items: Vec<String>) -> Job {
@@ -224,7 +229,7 @@ impl App {
             egui::RichText::new(t("Trova e rimuovi le cartelle vuote e i file da 0 byte nella tua cartella personale. Prima di eliminare vedrai sempre l'elenco e dovrai confermare."))
                 .size(17.0),
         );
-        ui.checkbox(&mut self.adv_hidden, t("Includi anche le cartelle nascoste (meglio lasciare disattivato)"));
+        ui.checkbox(&mut self.adv_hidden, t("Includi anche file e cartelle nascosti (meglio lasciare disattivato)"));
         ui.add_space(8.0);
         self.found_card(ui, ctx, true);
         ui.add_space(10.0);
@@ -279,11 +284,26 @@ impl App {
         ui.horizontal(|ui| {
             if ui.add_enabled(!self.busy, egui::Button::new(t("Cerca"))).clicked() {
                 self.spawn(ctx, move |ch| {
-                    let l = if dirs { scan_dirs(hidden) } else { scan_files(hidden) };
+                    let mut l = if dirs { scan_dirs(hidden) } else { scan_files(hidden) };
+                    if dirs {
+                        let paths: std::collections::HashSet<String> =
+                            l.iter().map(|f| f.path.clone()).collect();
+                        l.retain(|f| {
+                            let mut cur = Path::new(&f.path).parent();
+                            while let Some(p) = cur {
+                                if paths.contains(p.to_string_lossy().as_ref()) {
+                                    return false;
+                                }
+                                cur = p.parent();
+                            }
+                            true
+                        });
+                    }
                     ch.send(Msg::Log(format!("✔ Trovati {} elementi", l.len())));
                     ch.send(if dirs { Msg::AdvDirs(l) } else { Msg::AdvFiles(l) });
                 });
             }
+            
             if self.busy {
                 ui.spinner();
             }

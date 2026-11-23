@@ -435,6 +435,12 @@ pub fn ui_orphan_kernels(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 .args(["-W", "-f=${Package}\t${Installed-Size}\t${Status}\n", "linux-image-*", "linux-headers-*"])
                 .output();
 
+            // Versione "base" del kernel in uso (senza il suffisso finale, es. "-amd64"):
+            // serve a proteggere anche i pacchetti -common e gli header del kernel attivo.
+            let base = running
+                .rsplit_once('-')
+                .map(|(b, _)| b.to_string())
+                .unwrap_or_else(|| running.clone());
             let mut map: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
             if let Ok(res) = out {
                 for line in String::from_utf8_lossy(&res.stdout).lines() {
@@ -446,7 +452,15 @@ pub fn ui_orphan_kernels(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                             .trim_start_matches("linux-image-")
                             .trim_start_matches("linux-headers-")
                             .trim_start_matches("unsigned-");
-                        if !ver.is_empty() && !running.starts_with(ver) && !ver.starts_with(&running) {
+                        // Solo pacchetti con numero di versione (esclude i metapacchetti
+                        // come linux-image-amd64) e mai quelli del kernel in uso.
+                        let is_versioned = ver.chars().next().map_or(false, |c| c.is_ascii_digit());
+                        if !running.is_empty()
+                            && is_versioned
+                            && !running.starts_with(ver)
+                            && !ver.starts_with(&running)
+                            && !ver.starts_with(&base)
+                        {
                             *map.entry(ver.to_string()).or_insert(0) += kb * 1024;
                         }
                     }
@@ -510,7 +524,13 @@ pub fn ui_orphan_kernels(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 .orphan_kernels
                 .iter()
                 .filter(|(_, _, s)| *s)
-                .map(|(v, _, _)| format!("linux-image-{v}* linux-headers-{v}*"))
+                .map(|(v, _, _)| {
+                    format!(
+                        "{} {}",
+                        util::shq(&format!("linux-image-{v}*")),
+                        util::shq(&format!("linux-headers-{v}*"))
+                    )
+                })
                 .collect();
             if !targets.is_empty() {
                 let script = format!("apt-get purge -y {} && update-grub", targets.join(" "));

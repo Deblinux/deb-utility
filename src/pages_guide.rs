@@ -172,7 +172,7 @@ const GUIDE: &[(&str, &[Entry])] = &[
             ),
             (
                 "Repository e driver",
-                "Driver manager rileva l'hardware, propone i driver e i firmware da installare, offre filtri rapidi (Tutti, Consigliati / non installati, Già installati) e include il controllo dei moduli kernel / firmware caricati (lsmod) con verifica mirata o elenco completo. App repository mostra e aggiunge le sorgenti software, Repository Manager abilita i Debian Backports e aggiorna gli elenchi dei pacchetti, e il Gestore Chiavi GPG verifica la scadenza delle chiavi, le rinnova o permette di disabilitare e riabilitare rapidamente chiavi e repository associati.",
+                "Driver manager rileva l'hardware e propone i driver e i firmware da installare. App repository mostra e aggiunge le sorgenti software, Repository Manager abilita i Debian Backports e aggiorna gli elenchi dei pacchetti, e il Gestore Chiavi GPG verifica la scadenza delle chiavi, le rinnova o permette di disabilitare e riabilitare rapidamente chiavi e repository associati.",
                 "Aggiungi solo repository di cui ti fidi e fai attenzione quando disabiliti o riabiliti sorgenti APT.",
             ),
             (

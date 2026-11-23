@@ -1,22 +1,69 @@
-use std::fs;
-use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::collections::HashSet;
+use std::fs;
+use std::os::unix::fs::{symlink, MetadataExt};
+use std::path::{Path, PathBuf};
 
-/// Copia ricorsiva di una directory (ignorando eventuali errori su file bloccati)
 fn copy_dir_recursive(src: &Path, dst: &Path) {
-    if !src.exists() {
+    let mut visited = HashSet::new();
+    copy_dir_inner(src, dst, &mut visited);
+}
+
+fn copy_dir_inner(src: &Path, dst: &Path, visited: &mut HashSet<(u64, u64)>) {
+    let meta = match fs::symlink_metadata(src) {
+        Ok(m) => m,
+        Err(_) => return,
+    };
+
+    if meta.file_type().is_symlink() {
+        copy_symlink(&meta, src, dst);
         return;
     }
+
+    if !meta.is_dir() {
+        return;
+    }
+
+    let key = (meta.dev(), meta.ino());
+    if !visited.insert(key) {
+        return;
+    }
+
     let _ = fs::create_dir_all(dst);
     if let Ok(entries) = fs::read_dir(src) {
         for entry in entries.flatten() {
             let path = entry.path();
             let target = dst.join(entry.file_name());
-            if path.is_dir() {
-                copy_dir_recursive(&path, &target);
-            } else {
+            let Ok(ft) = entry.file_type() else {
+                continue;
+            };
+
+            if ft.is_symlink() {
+                if let Ok(m) = fs::symlink_metadata(&path) {
+                    copy_symlink(&m, &path, &target);
+                }
+            } else if ft.is_dir() {
+                copy_dir_inner(&path, &target, visited);
+            } else if ft.is_file() {
                 let _ = fs::copy(&path, &target);
             }
+        }
+    }
+}
+
+fn copy_symlink(meta: &fs::Metadata, src: &Path, dst: &Path) {
+    if let Ok(link_target) = fs::read_link(src) {
+        let _ = fs::remove_file(dst);
+        let _ = symlink(&link_target, dst);
+        return;
+    }
+
+    // Fallback se read_link non è supportato: copia il contenuto solo se non è una directory
+    if let Ok(target_meta) = fs::metadata(src) {
+        if target_meta.is_file() {
+            let _ = fs::copy(src, dst);
+        } else if meta.is_file() {
+            let _ = fs::copy(src, dst);
         }
     }
 }

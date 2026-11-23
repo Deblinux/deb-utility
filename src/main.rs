@@ -50,7 +50,6 @@ use pages_sys::{BigFile, NetStatus, Pkg, ProcRow};
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::{Duration, Instant};
-
 #[derive(PartialEq, Clone, Copy)]
 pub enum Page {
     Dashboard,
@@ -183,6 +182,7 @@ pub enum Msg {
     Disks(Vec<(String, String)>),
     AdvDirs(Vec<Found>),
     AdvFiles(Vec<Found>),
+    SystemEditorSaved(Result<String, String>),
     Drivers(Vec<(String, String)>, Vec<DriverProp>),
     Picked(Option<Vec<String>>),
     UpdApt(Vec<String>, bool),
@@ -670,7 +670,11 @@ impl App {
         self.busy = true;
         let ch = Chan { tx: self.tx.clone(), ctx: ctx.clone() };
         std::thread::spawn(move || {
-            f(&ch);
+            // Se il job va in panic l'interfaccia non deve restare bloccata su "occupato"
+            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&ch)));
+            if res.is_err() {
+                ch.send(Msg::Log("✘ Errore interno: l'operazione si è interrotta in modo anomalo.".into()));
+            }
             ch.send(Msg::Busy(false));
         });
     }
@@ -972,8 +976,24 @@ impl App {
                 Msg::SafeOptimizeReport(rep) => self.safe_report = Some(rep),
                 Msg::DiskDeepScan(deep) => self.disk_deep = deep,
                 Msg::DiskSpaceComparison(comp) => self.disk_comparison = Some(comp),
-            }
+
+        
+        Msg::SystemEditorSaved(res) => {
+                    self.system_editor.saving = false;
+                    match res {
+                        Ok(msg) => {
+                            self.log.push_str(&format!("✔ {}\n", msg));
+                            self.system_editor.status_msg = msg;
+                        }
+                        Err(e) => {
+                            self.log.push_str(&format!("✘ {}\n", e));
+                            self.system_editor.status_msg = e;
+                        }
+                    }
+                }
+           }
         }
+        
     }
     
     fn ui_history(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -1191,11 +1211,21 @@ impl App {
                 }
                 ui.add_space(8.0);
                 if ui.add_enabled(!self.busy, egui::Button::new(t("Rimuovi Flatpak inutilizzati"))).clicked() {
+                    let targets: Vec<String> = self
+                        .flatpak_unused
+                        .iter()
+                        .filter(|(_, sel)| *sel)
+                        .map(|(item, _)| item.clone())
+                        .collect();
                     let job: Job = Box::new(move |ch: &Chan| {
-                        ch.send(Msg::Log("▶ Rimuovo i runtime Flatpak non utilizzati...".into()));
-                        cleaner::remove_unused_flatpaks();
+                        ch.send(Msg::Log("▶ Rimuovo i runtime Flatpak selezionati...".into()));
+                        let ok = cleaner::remove_unused_flatpaks(&targets);
                         ch.send(Msg::FlatpakUnused(cleaner::scan_flatpak_unused()));
-                        ch.send(Msg::Log("✔ Pulizia Flatpak completata.".into()));
+                        if ok {
+                            ch.send(Msg::Log("✔ Pulizia Flatpak completata.".into()));
+                        } else {
+                            ch.send(Msg::Log("✘ Rimozione Flatpak non riuscita o annullata.".into()));
+                        }
                     });
                     self.spawn(ctx, job);
                 }
@@ -1218,9 +1248,13 @@ impl App {
                     let targets: Vec<String> = self.disabled_snaps.iter().filter(|(_, sel)| *sel).map(|(s, _)| s.clone()).collect();
                     let job: Job = Box::new(move |ch: &Chan| {
                         ch.send(Msg::Log("▶ Rimozione vecchie revisioni Snap...".into()));
-                        cleaner::remove_disabled_snaps(&targets);
+                        let ok = cleaner::remove_disabled_snaps(&targets);
                         ch.send(Msg::DisabledSnaps(cleaner::scan_disabled_snaps()));
-                        ch.send(Msg::Log("✔ Pulizia revisioni Snap completata.".into()));
+                        if ok {
+                            ch.send(Msg::Log("✔ Pulizia revisioni Snap completata.".into()));
+                        } else {
+                            ch.send(Msg::Log("✘ Pulizia revisioni Snap non riuscita (autorizzazione negata o errore di snap).".into()));
+                        }
                     });
                     self.spawn(ctx, job);
                 }
@@ -1243,13 +1277,20 @@ impl App {
                 ui.add_space(8.0);
                 if ui.add_enabled(!self.busy, egui::Button::new(t("Elimina configurazioni orfane selezionate"))).clicked() {
                     let targets: Vec<std::path::PathBuf> = self.orphan_configs.iter().filter(|(_, sel)| *sel).map(|(p, _)| p.clone()).collect();
-                    let job: Job = Box::new(move |ch: &Chan| {
-                        ch.send(Msg::Log("▶ Rimozione cartelle orfane in ~/.config...".into()));
-                        cleaner::remove_orphan_configs(&targets);
-                        ch.send(Msg::OrphanConfigs(cleaner::scan_orphan_configs()));
-                        ch.send(Msg::Log("✔ Configurazioni orfane rimosse.".into()));
-                    });
-                    self.spawn(ctx, job);
+                    if !targets.is_empty() {
+                        let n_targets = targets.len();
+                        let job: Job = Box::new(move |ch: &Chan| {
+                            ch.send(Msg::Log("▶ Rimozione cartelle orfane in ~/.config...".into()));
+                            let ok = cleaner::remove_orphan_configs(&targets);
+                            ch.send(Msg::OrphanConfigs(cleaner::scan_orphan_configs()));
+                            let mark = if ok { "✔" } else { "⚠" };
+                            ch.send(Msg::Log(format!("{mark} Rimozione configurazioni orfane terminata{}.", if ok { "" } else { " (alcune non rimosse)" })));
+                        });
+                        self.confirm = Some((
+                            format!("Eliminare definitivamente {} cartelle di configurazione in ~/.config? Le impostazioni dei programmi andranno perse.", n_targets),
+                            job,
+                        ));
+                    }
                 }
             }
         });
@@ -1885,18 +1926,15 @@ ui.add_space(10.0);
 
             ui.add_space(10.0);
             ui.horizontal(|ui| {
-                if ui::primary_button(ui, t("Salva con Backup e Validazione"), !self.busy).clicked() {
+            let can_save = !self.busy && !self.system_editor.saving;
+                if ui::primary_button(ui, t("Salva con Backup e Validazione"), can_save).clicked() {
                     let path = self.system_editor.selected_path.clone();
-                    match self.system_editor.save_file(&path) {
-                        Ok(msg) => {
-                            self.log.push_str(&format!("✔ {}\n", msg));
-                            self.system_editor.status_msg = msg;
-                        }
-                        Err(e) => {
-                            self.log.push_str(&format!("✘ {}\n", e));
-                            self.system_editor.status_msg = e;
-                        }
-                    }
+                    let content = self.system_editor.content.clone();
+                    let tx = self.tx.clone();
+                    let ctx_clone = ctx.clone();
+                    self.system_editor.saving = true;
+                    self.system_editor.status_msg = t("Salvataggio in corso...").to_string();
+                    self.system_editor.save_file_async(path, content, tx, ctx_clone);
                 }
 
                 if ui.button(t("Ricarica originale")).clicked() {

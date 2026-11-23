@@ -144,7 +144,7 @@ pub fn get_active_fixes(out: &str) -> Vec<CrashFixOption> {
             problem_title: "Problemi con i pacchetti installati (DPKG/APT bloccato)",
             explanation: "Il gestore pacchetti è rimasto bloccato da un'installazione interrotta.",
             fix_label: "Sblocca e ripara database pacchetti",
-            fix_script: "rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock && dpkg --configure -a && apt-get install -f -y && echo '✔ DPKG riparato'",
+            fix_script: "if command -v fuser >/dev/null 2>&1 && fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock >/dev/null 2>&1; then echo 'apt/dpkg è in esecuzione: attendi che finisca prima di riparare.'; exit 1; fi; rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock && dpkg --configure -a && apt-get install -f -y && echo '✔ DPKG riparato'",
             needs_root: true,
         });
     }

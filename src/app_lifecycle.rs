@@ -11,58 +11,55 @@ pub struct ResidualArtifact {
     pub selected: bool,
 }
 
-/// Scansiona il file system alla ricerca di residui associati a una determinata app o pacchetto
+/// Nomi (minuscoli) che non devono mai essere proposti per la rimozione:
+/// file e cartelle fondamentali per il funzionamento del sistema.
+const PROTECTED_NAMES: &[&str] = &[
+    "passwd", "shadow", "group", "gshadow", "fstab", "hosts", "hostname", "resolv.conf",
+    "sudoers", "sudoers.d", "ssh", "systemd", "apt", "default", "init.d", "x11", "network",
+    "dpkg", "pam.d", "pam.conf", "security", "ld.so.conf", "ld.so.conf.d", "udev", "dbus-1",
+    "polkit-1", "cron.d", "cron.daily", "grub.d", "modprobe.d", "sysctl.d", "sysctl.conf",
+    "os-release", "machine-id", "kernel", "initramfs-tools", "alternatives", "ssl",
+    "ca-certificates", "ca-certificates.conf", "networkmanager", "pulse", "xdg", "profile",
+    "profile.d", "bash.bashrc", "environment", "fonts", "mime.types", "services", "protocols",
+    "login.defs", "nsswitch.conf", "locale.gen", "localtime", "timezone", "issue", "motd",
+];
+
+/// Lunghezza minima della ricerca: con 1-2 caratteri quasi tutto in /etc corrisponderebbe.
+const MIN_QUERY_LEN: usize = 3;
+
+fn is_protected(name_lower: &str) -> bool {
+    PROTECTED_NAMES.contains(&name_lower)
+}
+
+/// Scansiona il file system alla ricerca di residui associati a una determinata app o pacchetto.
+/// Nessun elemento viene preselezionato: è l'utente a scegliere cosa eliminare.
 pub fn scan_surgical_residuals(query: &str) -> Vec<ResidualArtifact> {
     let mut residuals = Vec::new();
-    if query.trim().is_empty() {
+    let q = query.trim().to_lowercase();
+    if q.chars().count() < MIN_QUERY_LEN {
         return residuals;
     }
 
-    let q = query.trim().to_lowercase();
+    // (cartella, etichetta del tipo di residuo)
+    let targets: [(&str, &str); 7] = [
+        ("/etc", "Config (/etc)"),
+        ("/lib/udev/rules.d", "Regola Udev"),
+        ("/etc/udev/rules.d", "Regola Udev"),
+        ("/etc/dbus-1/system.d", "Servizio / Cron"),
+        ("/etc/polkit-1/actions", "Servizio / Cron"),
+        ("/etc/cron.d", "Servizio / Cron"),
+        ("/usr/share/polkit-1/actions", "Servizio / Cron"),
+    ];
 
-    // 1. Controlla in /etc
-    let etc_path = Path::new("/etc");
-    if let Ok(entries) = fs::read_dir(etc_path) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_lowercase();
-            if name.contains(&q) {
-                residuals.push(ResidualArtifact {
-                    path: entry.path(),
-                    artifact_type: "Config (/etc)".to_string(),
-                    selected: true,
-                });
-            }
-        }
-    }
-
-    // 2. Controlla regole Udev (/lib/udev/rules.d o /etc/udev/rules.d)
-    for udev_dir in &["/lib/udev/rules.d", "/etc/udev/rules.d"] {
-        let p = Path::new(udev_dir);
-        if let Ok(entries) = fs::read_dir(p) {
+    for (dir, label) in targets {
+        if let Ok(entries) = fs::read_dir(Path::new(dir)) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_lowercase();
-                if name.contains(&q) {
+                if name.contains(&q) && !is_protected(&name) {
                     residuals.push(ResidualArtifact {
                         path: entry.path(),
-                        artifact_type: "Regola Udev".to_string(),
-                        selected: true,
-                    });
-                }
-            }
-        }
-    }
-
-    // 3. Controlla D-Bus, Polkit e Cron
-    for target_dir in &["/etc/dbus-1/system.d", "/etc/polkit-1/actions", "/etc/cron.d"] {
-        let p = Path::new(target_dir);
-        if let Ok(entries) = fs::read_dir(p) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_lowercase();
-                if name.contains(&q) {
-                    residuals.push(ResidualArtifact {
-                        path: entry.path(),
-                        artifact_type: "Servizio / Cron".to_string(),
-                        selected: true,
+                        artifact_type: label.to_string(),
+                        selected: false,
                     });
                 }
             }
@@ -124,25 +121,40 @@ impl App {
                 });
 
                 ui.add_space(10.0);
-                if ui.button(egui::RichText::new(t("Esegui Bonifica Chirurgica Selezionati")).color(ui::BAD)).clicked() {
-                    let paths_to_remove: Vec<String> = self.app_lifecycle_residuals
+                let n_sel = self.app_lifecycle_residuals.iter().filter(|i| i.selected).count();
+                if ui
+                    .add_enabled(
+                        !self.busy && n_sel > 0,
+                        egui::Button::new(
+                            egui::RichText::new(t("Esegui Bonifica Chirurgica Selezionati")).color(ui::BAD),
+                        ),
+                    )
+                    .clicked()
+                {
+                    let paths_to_remove: Vec<String> = self
+                        .app_lifecycle_residuals
                         .iter()
                         .filter(|i| i.selected)
                         .map(|i| i.path.to_string_lossy().to_string())
                         .collect();
-                    
-                    if !paths_to_remove.is_empty() {
-                        let joined = paths_to_remove.join(" ");
-                        // Esecuzione tramite comando di sistema per rimuovere i residui come root
-                        let _ = std::process::Command::new("sh")
-                            .arg("-c")
-                            .arg(format!("rm -rf {joined}"))
-                            .output();
 
-                        self.log.push_str(&format!("▶ Eseguita bonifica chirurgica su: {joined}\n"));
-                        self.app_lifecycle_residuals.retain(|i| !i.selected);
-                    }
+                    // Percorsi quotati per la shell; eseguito come amministratore (pkexec)
+                    let args = paths_to_remove
+                        .iter()
+                        .map(|p| crate::util::shq(p))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    let script = format!("rm -rf -- {args}");
+                    let job = crate::cmd_job("app_lifecycle", script, true);
+                    let msg = format!(
+                        "Eliminare definitivamente {} elementi di sistema?\n{}",
+                        paths_to_remove.len(),
+                        paths_to_remove.join("\n")
+                    );
+                    self.confirm = Some((msg, job));
                 }
+                ui.add_space(6.0);
+                ui.label(t("Dopo l'eliminazione premi di nuovo «Cerca Residui Invisibili» per aggiornare l'elenco."));
             }
         });
     }

@@ -154,8 +154,34 @@ impl App {
             if self.busy {
                 ui.spinner();
             }
-        });
+         });
         ui.add_space(8.0);
+
+        if self.busy {
+            let mut frac: f32 = 0.15;
+            let mut fase = t("Aggiornamento in corso...");
+            if self.live.contains_key("upd_flat") {
+                frac = 0.78;
+                fase = t("Aggiornamento pacchetti Flatpak in corso...");
+            } else if self.live.contains_key("upd_apt") {
+                frac = 0.45;
+                fase = t("Aggiornamento pacchetti APT in corso...");
+            }
+            ui::card(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let w = (ui.available_width() - 32.0).max(120.0);
+                    ui.add(
+                        egui::ProgressBar::new(frac.clamp(0.0, 1.0))
+                            .show_percentage()
+                            .desired_width(w),
+                    );
+                    ui.spinner();
+                });
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new(fase).color(ui::TEXT_DIM));
+            });
+            ui.add_space(8.0);
+        }
 
         // output in tempo reale
         if self.out.contains_key("upd_apt") || self.live.contains_key("upd_apt") {

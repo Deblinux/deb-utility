@@ -24,12 +24,12 @@ fn partial_hash(path: &Path) -> Option<[u8; 4096]> {
 }
 
 fn full_sha256(path: &Path) -> Option<String> {
-    let out = Command::new("sha256sum").arg(path).output().ok()?;
+    let out = Command::new("sha256sum").arg("--").arg(path).output().ok()?;
     if !out.status.success() {
         return None;
     }
     let s = String::from_utf8_lossy(&out.stdout);
-    s.split_whitespace().next().map(|h| h.to_string())
+    s.split_whitespace().next().map(|h| h.trim_start_matches('\\').to_string())
 }
 
 fn walk_dir(dir: &Path, skip_hidden: bool, min_size: u64, by_size: &mut HashMap<u64, Vec<PathBuf>>) {
@@ -171,9 +171,15 @@ impl App {
         // Calcolo spazio totale selezionato
         let mut selected_count = 0usize;
         let mut selected_bytes = 0u64;
+        let mut groups_fully_selected = 0usize;
         for g in &self.dup_groups {
-            for (_, sel) in &g.files {
-                if *sel {
+            let all_sel = g.files.iter().all(|(_, s)| *s);
+            if all_sel {
+                groups_fully_selected += 1;
+            }
+            for (i, (_, sel)) in g.files.iter().enumerate() {
+                // se tutte le copie sono spuntate, la prima viene comunque conservata
+                if *sel && !(all_sel && i == 0) {
                     selected_count += 1;
                     selected_bytes += g.size;
                 }
@@ -207,8 +213,10 @@ impl App {
                     {
                         let mut to_delete = Vec::new();
                         for g in &self.dup_groups {
-                            for (p, sel) in &g.files {
-                                if *sel {
+                            // non cancellare mai tutte le copie di un file: la prima viene salvata
+                            let all_sel = g.files.iter().all(|(_, s)| *s);
+                            for (i, (p, sel)) in g.files.iter().enumerate() {
+                                if *sel && !(all_sel && i == 0) {
                                     to_delete.push(p.clone());
                                 }
                             }
@@ -239,6 +247,17 @@ impl App {
                 });
             });
         });
+
+        if groups_fully_selected > 0 {
+            ui.colored_label(
+                ui::WARN,
+                format!(
+                    "{} {}",
+                    groups_fully_selected,
+                    t("gruppi hanno tutte le copie spuntate: la prima di ogni gruppo verrà conservata.")
+                ),
+            );
+        }
 
         ui.add_space(8.0);
 

@@ -185,7 +185,12 @@ fn remove_user_cache_contents(p: &Path) -> usize {
 
 fn priv_cmd(kind: Kind) -> Option<&'static str> {
     match kind {
-        Kind::Temp => Some("find /tmp /var/tmp -mindepth 1 -mtime +2 -delete 2>/dev/null"),
+        Kind::Temp => Some(
+            "find /tmp /var/tmp -xdev -mindepth 1 -atime +2 -mtime +2 ! -type s \
+             ! -path '/tmp/.*-unix*' ! -path '/tmp/.X*-lock' ! -path '/tmp/ssh-*' \
+             ! -path '/tmp/systemd-private-*' ! -path '/var/tmp/systemd-private-*' \
+             -delete 2>/dev/null",
+        ),
         Kind::AptCache => Some("apt-get clean; apt-get -y autoclean"),
         Kind::Autoremove => Some("apt-get -y autoremove --purge"),
         Kind::Ram => Some("sync; echo 3 > /proc/sys/vm/drop_caches"),
@@ -273,7 +278,7 @@ pub fn fmt_bytes(b: u64) -> String {
 
 pub fn scan_rc_pkgs() -> Vec<(String, bool)> {
     let mut pkgs = Vec::new();
-    if let Ok(output) = std::process::Command::new("dpkg-query").args(["-W", "-f=${Status} ${Package}\n"]).output() {
+    if let Ok(output) = std::process::Command::new("dpkg-query").args(["-W", "-f=${db:Status-Abbrev} ${Package}\n"]).output() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
             if line.starts_with("rc ") {
@@ -288,14 +293,26 @@ pub fn scan_rc_pkgs() -> Vec<(String, bool)> {
 
 pub fn scan_flatpak_unused() -> Vec<(String, bool)> {
     let mut list = Vec::new();
-    if let Ok(output) = std::process::Command::new("flatpak").args(["uninstall", "--unused", "--assumeyes", "--dry-run"]).output() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            let line = line.trim();
-            if !line.is_empty() && (line.contains('/') || line.contains("Ref:")) {
-                let name = line.split_whitespace().next().unwrap_or(line).to_string();
-                list.push((name, true));
-            }
+    let mut cmd = std::process::Command::new("flatpak");
+    cmd.args(["list", "--unused", "--columns=application,ref"]);
+    let Ok(output) = cmd.output() else {
+        return list;
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let cols: Vec<&str> = line.split('\t').map(str::trim).filter(|s| !s.is_empty()).collect();
+        let ref_id = cols
+            .iter()
+            .copied()
+            .find(|c| c.contains('/'))
+            .or_else(|| cols.first().copied())
+            .unwrap_or(line);
+        if !ref_id.is_empty() && !list.iter().any(|(existing, _)| existing == ref_id) {
+            list.push((ref_id.to_string(), false));
         }
     }
     list
@@ -311,7 +328,7 @@ pub fn scan_config_backups() -> Vec<(PathBuf, bool)> {
         for path in entries {
             if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
                 if matches!(ext, "dpkg-bak" | "dpkg-old" | "dpkg-dist" | "ucf-old" | "pacsave" | "pacnew") {
-                    list.push((path, true));
+                    list.push((path, false));
                 }
             }
         }
@@ -326,36 +343,62 @@ pub fn scan_disabled_snaps() -> Vec<(String, bool)> {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines().skip(1) {
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 4 && parts[3] == "-" { // Inattivo/disabilitato
-                let name = format!("{} (rev {})", parts[0], parts[1]);
-                list.push((name, true));
+            // Colonne: Name Version Rev Tracking Publisher Notes. Le revisioni vecchie
+            // hanno "disabled" nelle Notes (ultima colonna).
+            if parts.len() >= 4 && parts.last().map_or(false, |n| n.contains("disabled")) {
+                let name = format!("{} (rev {})", parts[0], parts[2]);
+                list.push((name, false));
             }
         }
     }
     list
 }
 
-/// Scansiona cartelle ~/.config orfane di programmi non più installati
+/// Scansiona cartelle ~/.config orfane di programmi non più installati.
+/// Euristica prudente: nessun elemento è preselezionato e le cartelle condivise
+/// dall'ambiente desktop o dal sistema audio non vengono mai proposte.
 pub fn scan_orphan_configs() -> Vec<(PathBuf, bool)> {
+    const KEEP: &[&str] = &[
+        "autostart", "dconf", "systemd", "environment.d", "menus", "fontconfig", "ibus",
+        "goa-1.0", "evolution", "procps", "session", "xdg-desktop-portal", "gtk-2.0",
+        "gtk-3.0", "gtk-4.0", "fcitx", "fcitx5", "enchant", "wireplumber",
+    ];
+    const KEEP_PREFIX: &[&str] = &[
+        "kde", "plasma", "xfce", "gnome", "lxqt", "lxsession", "mate", "cinnamon", "openbox",
+        "pulse", "pipewire",
+    ];
     let mut list = Vec::new();
     let h = PathBuf::from(home());
     let config_dir = h.join(".config");
-    
+
     if let Ok(rd) = fs::read_dir(config_dir) {
         for entry in rd.flatten() {
             let path = entry.path();
-            if path.is_dir() {
-                if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
-                    // Controlla se esiste il rispettivo comando o pacchetto installato
-                    let which_check = std::process::Command::new("which").arg(name).status();
-                    let dpkg_check = std::process::Command::new("dpkg-query").args(["-s", name]).status();
-                    
-                    let is_installed = which_check.map(|s| s.success()).unwrap_or(false)
-                        || dpkg_check.map(|s| s.success()).unwrap_or(false);
-
-                    if !is_installed {
-                        list.push((path, true));
-                    }
+            if !path.is_dir() {
+                continue;
+            }
+            if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+                let low = name.to_lowercase();
+                if KEEP.contains(&low.as_str()) || KEEP_PREFIX.iter().any(|p| low.starts_with(*p)) {
+                    continue;
+                }
+                // Controlla se esiste il rispettivo comando o pacchetto installato
+                // (prova anche il nome in minuscolo: "Code" -> "code")
+                let check = |n: &str| {
+                    let which_ok = std::process::Command::new("which")
+                        .arg(n)
+                        .output()
+                        .map(|o| o.status.success())
+                        .unwrap_or(false);
+                    let dpkg_ok = std::process::Command::new("dpkg-query")
+                        .args(["-s", n])
+                        .output()
+                        .map(|o| o.status.success())
+                        .unwrap_or(false);
+                    which_ok || dpkg_ok
+                };
+                if !(check(name) || check(&low)) {
+                    list.push((path, false));
                 }
             }
         }
@@ -394,8 +437,13 @@ pub fn purge_rc_pkgs(pkgs: &[String]) -> bool {
     status.map(|s| s.success()).unwrap_or(false)
 }
 
-pub fn remove_unused_flatpaks() -> bool {
-    let status = std::process::Command::new("flatpak").args(["uninstall", "--unused", "-y"]).status();
+pub fn remove_unused_flatpaks(selected: &[String]) -> bool {
+    if selected.is_empty() {
+        return true;
+    }
+    let mut args = vec!["uninstall", "-y"];
+    args.extend(selected.iter().map(|s| s.as_str()));
+    let status = std::process::Command::new("flatpak").args(&args).status();
     status.map(|s| s.success()).unwrap_or(false)
 }
 
@@ -410,7 +458,7 @@ pub fn remove_disabled_snaps(snaps: &[String]) -> bool {
             let rev_part = &item[idx + 6..];
             if let Some(end_idx) = rev_part.find(')') {
                 let rev = &rev_part[..end_idx];
-                return std::process::Command::new("sudo")
+                return std::process::Command::new("pkexec")
                     .args(["snap", "remove", name, "--revision", rev])
                     .status()
                     .map(|s| s.success())

@@ -451,7 +451,7 @@ ui.add_space(8.0);
         ui.horizontal_wrapped(|ui| {
             self.run_btn(
                 ui, ctx, t("Ripara database APT"), "fixer",
-                "rm -f /var/lib/apt/lists/lock /var/cache/apt/archives/lock; dpkg --configure -a; apt-get -y -f install; apt-get update",
+                "if command -v fuser >/dev/null 2>&1 && fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock >/dev/null 2>&1; then echo 'apt/dpkg è in esecuzione: attendi che finisca prima di riparare.'; exit 1; fi; rm -f /var/lib/apt/lists/lock /var/cache/apt/archives/lock; dpkg --configure -a; apt-get -y -f install; apt-get update",
                 true, None,
             );
             self.run_btn(ui, ctx, t("Correggi dipendenze rotte"), "fixer", "apt-get -y -f install", true, None);
@@ -769,24 +769,7 @@ ui.add_space(8.0);
             ui.label(egui::RichText::new(t("Premi «Rileva hardware e driver» per analizzare il computer.")).color(ui::TEXT_DIM));
             return;
         }
-let filter_id = egui::Id::new("debclean_drivers_filter");
-        let mut drv_filter = ui.data_mut(|d| d.get_temp::<usize>(filter_id).unwrap_or(0));
-        ui.horizontal(|ui| {
-            ui.label(t("Filtro rapido:"));
-            if ui.selectable_label(drv_filter == 0, t("Tutti")).clicked() {
-                drv_filter = 0;
-                ui.data_mut(|d| d.insert_temp(filter_id, drv_filter));
-            }
-            if ui.selectable_label(drv_filter == 1, t("Consigliati / non installati")).clicked() {
-                drv_filter = 1;
-                ui.data_mut(|d| d.insert_temp(filter_id, drv_filter));
-            }
-            if ui.selectable_label(drv_filter == 2, t("Già installati")).clicked() {
-                drv_filter = 2;
-                ui.data_mut(|d| d.insert_temp(filter_id, drv_filter));
-            }
-        });
-        ui.add_space(8.0);
+
         if !self.drv_hw.is_empty() {
             ui::card(ui, |ui| {
                 ui.label(egui::RichText::new(t("Hardware rilevato")).strong().size(20.0));
@@ -801,17 +784,7 @@ let filter_id = egui::Id::new("debclean_drivers_filter");
 
         ui.label(egui::RichText::new(t("Driver proposti")).strong().size(20.0));
         ui.add_space(4.0);
-let mut shown_drv = 0usize;
         for d in self.drv.iter_mut() {
-            let matches = match drv_filter {
-                1 => d.recommended && !d.installed,
-                2 => d.installed,
-                _ => true,
-            };
-            if !matches {
-                continue;
-            }
-            shown_drv += 1;
             ui::card(ui, |ui| {
                 ui.horizontal(|ui| {
                     let enabled = d.available && !d.installed;
@@ -831,9 +804,6 @@ let mut shown_drv = 0usize;
                 ui.label(egui::RichText::new(format!("{}: {}", t("Hardware"), d.hw)).color(ui::TEXT_DIM));
             });
             ui.add_space(6.0);
-        }
-        if shown_drv == 0 {
-            ui.label(egui::RichText::new(t("Nessun driver corrisponde al filtro selezionato.")).color(ui::TEXT_DIM));
         }
 
         let missing = self.drv.iter().any(|d| !d.available && !d.installed);
@@ -898,92 +868,8 @@ let mut shown_drv = 0usize;
                 }
             }
         });
-
-ui.add_space(10.0);
-        ui::card(ui, |ui| {
-            ui.label(
-                egui::RichText::new(t("Controllo moduli kernel / firmware caricati (lsmod)"))
-                    .strong()
-                    .size(18.0),
-            );
-            ui.add_space(4.0);
-            ui.label(
-                t("Verifica se un modulo specifico (es. nvidia, iwlwifi, btusb) è effettivamente caricato."),
-            );
-            ui.add_space(6.0);
-
-            let mod_id = egui::Id::new("debclean_lsmod_query");
-            let mut mod_query = ui.data_mut(|d| {
-                d.get_temp::<String>(mod_id).unwrap_or_else(|| "iwlwifi".to_string())
-            });
-
-            ui.horizontal(|ui| {
-                ui.label(t("Modulo:"));
-                if ui
-                    .add(
-                        egui::TextEdit::singleline(&mut mod_query)
-                            .hint_text("nvidia, iwlwifi, btusb...")
-                            .desired_width(220.0),
-                    )
-                    .changed()
-                {
-                    ui.data_mut(|d| d.insert_temp(mod_id, mod_query.clone()));
-                }
-            });
-
-            ui.add_space(6.0);
-            ui.horizontal_wrapped(|ui| {
-                for preset in ["nvidia", "iwlwifi", "btusb"] {
-                    if ui.small_button(preset).clicked() {
-                        mod_query = preset.to_string();
-                        ui.data_mut(|d| d.insert_temp(mod_id, mod_query.clone()));
-                    }
-                }
-            });
-
-            let clean_mod: String = mod_query
-                .trim()
-                .chars()
-                .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
-                .collect();
-
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                let target_script = if clean_mod.is_empty() {
-                    "lsmod | head -n 40".to_string()
-                } else {
-                    format!(
-                        "lsmod | awk 'NR==1 || tolower($1) ~ /^{}/ {{print}}'; \
-                         if ! lsmod | awk 'NR>1 && tolower($1) ~ /^{}/ {{found=1}} END {{exit !found}}'; then \
-                           echo 'Modulo non attualmente caricato.'; \
-                         fi",
-                        clean_mod.to_lowercase(),
-                        clean_mod.to_lowercase()
-                    )
-                };
-                self.run_btn(
-                    ui,
-                    ctx,
-                    t("Verifica modulo caricato"),
-                    "drivers_lsmod",
-                    &target_script,
-                    false,
-                    None,
-                );
-                self.run_btn(
-                    ui,
-                    ctx,
-                    t("Mostra tutti i moduli"),
-                    "drivers_lsmod",
-                    "lsmod",
-                    false,
-                    None,
-                );
-            });
-
-            self.show_out(ui, "drivers_lsmod", 160.0);
-        });
     }
+
     // ----- Startup
 
 pub(crate) fn ui_startup(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
