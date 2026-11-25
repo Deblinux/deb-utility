@@ -1,4 +1,4 @@
-# DebClean
+# DebUtility
 
 Clone di Stacer in Rust per Debian, con interfaccia grafica (egui): barra laterale scura, dashboard con indicatori circolari, tessere colorate e le schede del Deblinux Toolkit. Multilingua: Italiano, English, Español, Français, Deutsch.
 
@@ -38,7 +38,7 @@ Clone di Stacer in Rust per Debian, con interfaccia grafica (egui): barra latera
 
 **Chiusura**: premendo la X in alto a destra il programma chiede conferma e, se c'è un'operazione in corso (pulizia, aggiornamento...), avvisa prima di chiudere.
 
-**Guida**: spiega in linguaggio semplice tutte le funzioni di DebClean, con avvertenze e ricerca. Per aggiungere o modificare un testo della guida vedi `src/pages_guide.rs`, poi rigenera le traduzioni come descritto sotto
+**Guida**: spiega in linguaggio semplice tutte le funzioni di DebUtility, con avvertenze e ricerca. Per aggiungere o modificare un testo della guida vedi `src/pages_guide.rs`, poi rigenera le traduzioni come descritto sotto
 
 ## Compilare
 
@@ -54,13 +54,13 @@ Dipendenze di sviluppo:
 Build ed esecuzione:
 
     cargo build --release
-    ./target/release/debclean
+    ./target/release/debutility
 
 Per compatibilità con tutte le Debian compila sulla versione più vecchia che vuoi supportare.
 
 ## Lingue
 
-All'avvio DebClean usa la lingua del sistema (variabile `LANG`); si cambia in Impostazioni → Lingua.
+All'avvio DebUtility usa la lingua del sistema (variabile `LANG`); si cambia in Impostazioni → Lingua.
 
 Le traduzioni stanno in `lang/strings.tsv` (incorporato nel programma): italiano, English, Español, Français, Deutsch.
 Per correggerle o aggiungere una lingua:
@@ -82,3 +82,7 @@ Le frasi senza traduzione vengono mostrate in italiano. I messaggi di registro e
 ## Sicurezza
 
 La password di root non viene mai salvata: le operazioni privilegiate passano da `pkexec` (Polkit). Le operazioni distruttive chiedono sempre conferma.
+
+## Compatibilità
+
+DebUtility legge configurazione, pianificazione e stato dell'ultima esecuzione anche dai vecchi percorsi `debclean`; al primo salvataggio scrive i nuovi percorsi `debutility`. Le vecchie unità systemd utente `debclean-maint.timer` e `debclean-maint.service` vengono riconosciute e disattivate quando si configura il nuovo timer.
