@@ -1,3 +1,35 @@
+Disinstallazione Chirurgica & Sandbox
+Nome pacchetto o app da bonificare:
+Cerca Residui Invisibili
+Elementi e residui invisibili rilevati:
+Nessun residuo trovato o scansione non ancora avviata. Inserisci un nome e cerca.
+Esegui Bonifica Chirurgica Selezionati
+Dopo l'eliminazione premi di nuovo «Cerca Residui Invisibili» per aggiornare l'elenco.
+✘ Comando 'sqlite3' non trovato sul sistema. Installalo con: sudo apt install sqlite3
+ℹ Nessun database SQLite di browser trovato o idoneo all'ottimizzazione.
+Ottimo stato: autonomia vicina ai valori di fabbrica.
+Usura moderata: prestare attenzione nei prossimi 12 mesi.
+Degrado critico: consigliata la sostituzione della batteria.
+Disco meccanico (HDD): monitoraggio operativo attivo.
+Periferica di archiviazione o lettore di schede (dati SMART non supportati).
+ATTENZIONE: Usura celle critica (>90%). Eseguire subito un backup!
+Usura avanzata: monitorare frequentemente i dati SMART.
+Stato di salute eccellente: nessun degrado anomalo.
+SSD operativo: parametri di temperatura e ore letti correttamente.
+Dati SMART non accessibili o periferica priva di sensori SMART.
+STATO DI DEGRADO BATTERIA
+Nessuna batteria rilevata (sistema desktop o sensore non disponibile).
+Salute reale:
+Capacità attuale vs Originale
+Cicli di carica completati
+ANALISI PREDITTIVA SSD E NVME
+Nessun disco SSD o NVMe rilevato.
+Vita utile residua stimata
+Usura
+Ore di attività
+Dati scritti (TBW)
+Temperatura
+Guardiano Predittivo
 (spento o non attivo)
 Monitor
 Modello
@@ -75,45 +107,330 @@ Distribuzione
 Versione Debian
 Kernel
 Nome host
+Aggiornamento pacchetti APT in corso...
+Aggiornamento app Flatpak in corso...
+Applico la correzione...
+Pulizia dei residui in corso...
+Operazione APT in corso...
+Operazioni sulla quarantena in corso...
+Operazione sui servizi in corso...
+Operazione su GRUB e avvio in corso...
+Rimozione kernel selezionati in corso...
+Creazione snapshot di sicurezza...
+Operazione sui dischi in corso...
+Configurazione della pianificazione in corso...
+Configurazione VPN in corso...
+Operazione in corso...
 Attendo l'autorizzazione di amministratore...
-Spazio recuperabile stimato:
+Completato
+Operazione terminata con errori
+Rilevamento del disco per GRUB...
+Verifica dello stato del sistema...
+Pulizia in corso...
+Pulizia completata
+Analisi completata
+Avvio e controllo iniziale...
+Test della connessione di rete...
+Controlli iniziali completati
+Privacy & Telemetry Guard
+Scansiona il sistema alla ricerca di agenti di telemetria, tracker o demoni di diagnostica invisibili, permettendoti di disattivarli o bloccarli con un clic.
 Pulisci selezionati
+Attenzione: hai selezionato 'Cronologia e cookie dei browser'. Verranno rimossi cronologia, cookie/sessioni e, su Firefox, anche i preferiti/segnalibri (le password salvate non vengono toccate). Vuoi continuare?
+Demoni di telemetria e diagnostica rilevati
+Nessun demone di telemetria noto attivo rilevato. (Premi 'Scansiona' per verificare)
+Disattiva e Blocca
+Blocco Rapido Domini di Telemetria (Hosts)
+Impedisci al sistema di contattare server noti di telemetria di grandi produttori bloccandoli a livello locale.
+Blocca dominio
+Crea snapshot di sicurezza prima di procedere
+Verrà creato uno snapshot prima di ogni rimozione; se la creazione fallisce la pulizia viene annullata.
+Nessuno strumento di snapshot rilevato: installa Timeshift o Snapper per usare questa opzione.
+DebUtility pre-pulizia
+Snapshot non riuscito: operazione annullata
+Snapshot creato
+In corso...
+Scansione spazio disco in corso...
+Scansione completata
+Spazio recuperabile stimato:
 Analizza
+Analisi spazio in corso...
+Ottimizza database SQLite browser
+Ottimizzazione database browser in corso...
+Ottimizzazione completata
 Nessun selettore di file trovato: installa zenity (sudo apt install zenity)
+Storico APT
+Qui puoi consultare il registro completo delle operazioni eseguite da APT sul sistema (installazioni, aggiornamenti e rimozioni di pacchetti).
+Ricarica Storico
+Nessuna transazione APT trovata o file di log non accessibile (/var/log/apt/history.log).
+Annulla operazione
+Comando:
+Installati:
+Aggiornati:
+Rimossi:
+Vuoi davvero annullare questa operazione APT?
+Verrà eseguito il comando
+Pulizia Avanzata e Residui
+Rimuovi configurazioni residue (pacchetti RC), backup dimenticati (.dpkg-bak, .pacsave), runtime Flatpak inutilizzati, vecchie revisioni Snap disabilitate e cartelle orfane in ~/.config.
+Scansiona tutto
+Scansione approfondita dei residui in corso...
+Pacchetti residui (rc)...
+Runtime Flatpak inutilizzati...
+Backup di configurazione dimenticati...
+Revisioni Snap disabilitate...
+Configurazioni orfane in ~/.config...
+Scansione residui completata
+Configurazioni residue (Pacchetti RC)
+Nessun pacchetto residuo trovato. (Premi 'Scansiona tutto' per avviare)
+Pulisci pacchetti RC selezionati
+Backup di configurazione dimenticati (/etc)
+Nessun file .dpkg-bak, .dpkg-old o .pacsave trovato.
+Sposta in quarantena i backup selezionati
+Spostamento backup in quarantena in corso...
+Spostamento completato
+Kit di Migrazione (1-Click)
+Esporta l'intero profilo della macchina in un unico archivio compresso (.tar.gz) contenente pacchetti APT manuali, app Flatpak installate, repository aggiuntivi, lanciatori utente e configurazioni dei Window Manager, includendo uno script automatico per ripristinare tutto sul nuovo sistema.
+Crea Kit di Migrazione
+Creazione del Kit di Migrazione in corso...
+Kit di Migrazione creato
+Runtime e App Flatpak Inutilizzati
+Nessun componente Flatpak orfano trovato.
+Rimuovi Flatpak inutilizzati
+Vecchie revisioni Snap disabilitate
+Nessuna revisione Snap disabilitata trovata.
+Rimuovi revisioni Snap selezionate
+Cartelle di configurazione utente orfane (~/.config)
+Nessuna cartella orfana rilevata in ~/.config.
+Elimina configurazioni orfane selezionate
+Pacchetti Snap
+Gestisci i pacchetti Snap installati sul sistema. Puoi aggiornarli o rimuoverli singolarmente.
+Aggiorna tutti gli Snap
+Nessun pacchetto Snap installato.
+Rimuovi
+Assicurati che snapd sia installato e attivo sul sistema.
+Perché è lento adesso?
+Diagnostica in 1 clic su CPU, memoria/swap, spazio disco, processi e servizi.
+Diagnostica ora
+Diagnostica rallentamenti in corso...
+Lettura dei contatori di sistema...
+Analisi dei processi e delle risorse...
+Diagnostica completata
+Premi «Diagnostica ora» per analizzare cosa sta impegnando il sistema in questo momento.
+Report diagnostica
+Genera un report completo dello stato del sistema in formato HTML (pronto anche per la stampa in PDF), utile per l'assistenza tecnica.
+Sezioni da includere nel report:
+Informazioni Hardware, CPU, RAM e Kernel
+Spazio disco e dispositivi a blocchi
+Pacchetti APT bloccati (hold) e integrità
+Log di errore recenti (journalctl e kernel)
+Percorso file di destinazione:
+Genera Report HTML
+Generazione del report diagnostico in corso...
+Report completato
+Generazione report non riuscita
+Scansione Treemap in corso...
+Scansione treemap di
+Scansione annullata
+Treemap aggiornata.
+Treemap pronta
+Cartella aperta nel file manager.
+Impossibile aprire il file manager
+cartella
+file
+Spostare nel cestino?
+Potrai ripristinarlo dal cestino del file manager.
+Spostato nel cestino:
+Spostamento nel cestino non riuscito
+errore sconosciuto
+Eliminare definitivamente?
+ATTENZIONE: l'operazione non è reversibile.
+Eliminato:
+Eliminazione non riuscita
+Analizzatore Spazio Disco
+Esplora le cartelle del file system per individuare a colpo d'occhio quali file o directory occupano più spazio.
+Percorso da analizzare:
+Sfoglia...
+Scansiona
+Scansione disco in corso...
+Analisi approfondita
+Analisi approfondita del disco in corso...
+Analisi approfondita completata
+Nessun risultato. Inserisci un percorso e premi 'Scansiona'.
+Scansione cartella in corso...
+Cartelle di cache più pesanti
+Nessuna cartella di cache analizzata. Premi 'Analisi approfondita'.
+File grandi recenti
+Nessun file grande recente trovato (ultimi 14 giorni, >= 100 MB).
+Confronto spazio Prima / Dopo
+Misura spazio Dopo
+Spazio libero prima:
+Spazio libero dopo:
+Differenza netta:
+Premi 'Misura spazio Dopo' dopo aver liberato o rimosso file.
+Avvia 'Analisi approfondita' per registrare lo spazio iniziale.
+Analizzatore Disco
+Scansiona una cartella e esplora lo spazio con una mappa di rettangoli proporzionali: clic su una cartella per entrare, tasto destro per aprire o rimuovere elementi.
+Cartella:
+Aggiorna
+Torna su
+Percorso:
+Totale:
+Scansione in corso...
+Nessuna scansione: scegli una cartella e premi 'Scansiona'.
+Dimensione:
+del totale
+Cartella — clic per entrare
+File — clic per selezionare
+Apri nel file manager
+Sposta nel cestino
+Elimina definitivamente
+Nessun dato da mostrare
+Selezionato:
+Nessun elemento selezionato: clic su un rettangolo.
+Top 20 file più pesanti
+File dell'intero sottoalbero, ordinati per dimensione.
+Nessun file trovato in questa cartella.
+In attesa della scansione...
+Gestore File di Sistema
+Modifica file di configurazione critici di sistema (/etc/fstab, /etc/hosts, /etc/environment). Viene creato automaticamente un backup (.bak) e validata la sintassi prima di salvare per evitare blocchi del boot.
+Salva con Backup e Validazione
+Salvataggio in corso...
+Ricarica originale
+Percorso guidato per principianti: prima ti mostra cosa farà senza fare danni, poi ti dice cosa ha fatto. Non tocca password, preferiti, cronologia, cookie o Cestino.
+1. Cosa farà (anteprima sicura)
+Aggiorna anteprima
+Spazio stimato recuperabile ora
+Ottimizza ora in sicurezza
+Ottimizzazione sicura in corso...
+2. Cosa ha fatto
+Nessuna ottimizzazione avviata ancora in questa sessione.
+Spazio liberato
+Completate
+Saltate
+Avvisi
 Deb
-Clean
+Utility
 Ottimizzatore di sistema
+MODALITÀ AMMINISTRATORE
 Pronto
 Conferma
 Annulla
-Chiudere DebClean?
+Chiudere DebUtility?
 Un'operazione è ancora in corso (pulizia, aggiornamento o altro). Se chiudi ora potrebbe interrompersi a metà e lasciare il sistema in uno stato incompleto.
 Ti consiglio di aspettare che finisca.
-Vuoi davvero chiudere DebClean?
+Vuoi davvero chiudere DebUtility?
 Chiudi
-Continua a usare DebClean
+Continua a usare DebUtility
+Nessun comando specificato: usa --scan, --clean o --dry-run (oppure avvia DebUtility senza argomenti per la GUI).
+--scan non può essere combinato con --clean o --dry-run.
+--json richiede --scan, --clean o --dry-run.
+--yes richiede --clean o --dry-run.
+--clean richiede --yes: nessun file è stato rimosso.
+Nessuna categoria valida selezionata.
+Modalità CLI / headless (nessuna GUI richiesta)
+Uso:
+  debutility                     Avvia la GUI
+  debutility --scan [--json]     Scansione sicura e riepilogo
+  debutility --clean --yes       Pulizia sicura non interattiva
+  debutility --dry-run           Anteprima senza eliminare nulla
+Opzioni:
+  -h, --help     Mostra questo aiuto ed esce
+  -V, --version  Mostra la versione ed esce
+  --json         Output JSON strutturato per script
+  --yes          Conferma esplicita richiesta da --clean
+  --include=ID1,ID2   Limita la pulizia alle categorie indicate
+  --exclude=ID1,ID2   Esclude categorie dalla selezione predefinita
+Codici di uscita:
+  0 successo, 1 errore operativo, 2 argomenti non validi o --yes mancante
+Residui APT (pacchetti rc)
+Runtime Flatpak inutilizzati
+Cartelle vuote
+File vuoti (0 byte)
+Scansione sicura completata
+Elementi da rimuovere:
+Pulizia completata.
+Spazio totale recuperabile:
+Nessun elemento sicuro da rimuovere.
+Attenzione
+Errore operativo durante la pulizia.
+Eliminati {} file scaduti dalla quarantena.
+Errore nella scadenza della quarantena: {}
+▶ {}: creazione snapshot di sicurezza...
+Snapshot di sicurezza ({})...
+✘ Snapshot non riuscito ({}): pulizia annullata.
+✔ Snapshot di sicurezza creato con {}.
+Spostare {} backup di configurazione in quarantena? Potrai ripristinarli entro {} giorni.
+Spostati {} file in quarantena, {} non spostati.
+{} elementi esaminati
+{} file · {} cartelle · {} errori
+Argomento non valido: {}
+Impossibile salvare lo stato della pulizia: {}
+Categoria non valida in --include/--exclude: {}
+Categorie disponibili: {}
 Qui elimini i file che non servono più (cache, file temporanei, cestino...) per liberare spazio. Spunta le voci che vuoi pulire, premi «Analizza» per vedere quanto spazio recuperi e poi «Pulisci selezionati».
 Dashboard
 Pulizia
+Residui di sistema
+File duplicati
+Quarantena / Ripristino
 Fixer
 Aggiornamenti
+Pianificatore
+Sviluppo & Container
 Info hardware
 Disco
+Analizzatore spazio
 Processi
 App installate
+AppImage
+Container
 Ottimizza RAM
 Temperature
+Dischi e condivisioni
 Kernel, Grub, Recovery
+Kernel & Boot
 Repository e driver
 Startup
+Tempi di avvio
 Permessi utente
+Servizi di sistema
+Gestore Pacchetti
+Temi e Font Utente
+Editor Menu
 Sicurezza e firewall
+Hardening di sicurezza
+Pulizia Chirurgica
 Backup
 File shredder
 Log debug
+Privacy & Telemetria
 Impostazioni
 Guida
+Informazioni
 ▶ Applico la correzione...
+▶ Rilevo il disco per configurare grub-pc senza terminale...
+✘ Errore interno: l'operazione si è interrotta in modo anomalo.
+▶ Scansione spazio disco in corso...
+▶ Avvio ottimizzazione database SQLite dei browser...
+▶ Scansione approfondita residui e file orfani in corso...
+✔ Scansione residui completata.
+▶ Creazione Kit di Migrazione in corso...
+▶ Rimuovo i runtime Flatpak selezionati...
+✔ Pulizia Flatpak completata.
+✘ Rimozione Flatpak non riuscita o annullata.
+▶ Rimozione vecchie revisioni Snap...
+✔ Pulizia revisioni Snap completata.
+✘ Pulizia revisioni Snap non riuscita (autorizzazione negata o errore di snap).
+▶ Rimozione cartelle orfane in ~/.config...
+▶ Aggiorno tutti i pacchetti Snap...
+✔ Aggiornamento Snap completato.
+▶ Eseguo diagnostica rallentamenti in corso...
+✔ Diagnostica rallentamenti completata.
+▶ Generazione del report diagnostico in corso...
+✔ Scansione completata.
+✔ Analisi approfondita completata.
+▶ Avvio ottimizzazione sicura per principianti...
+✔ Esportati repository APT e chiavi di firma.
+✔ Esportati lanciatori (.desktop), autostart e configurazioni Window Manager.
 Prima
 Dopo
 Parametri aggiunti
@@ -126,6 +443,9 @@ Occupato
 🛠 Correggi tutto
 Nessun controllo eseguito: premi «Esegui controlli».
 Correggi
+Risoluzione Errori APT e Chiavi GPG
+Rileva automaticamente le firme digitali mancanti (NO_PUBKEY) dai repository PPA di terze parti e le scarica dai server ufficiali per sbloccare gli aggiornamenti di sistema.
+Correggi chiavi GPG mancanti
 Strumenti di riparazione manuali
 Ripara database APT
 Correggi dipendenze rotte
@@ -133,6 +453,12 @@ Riconfigura pacchetti
 Pulisci pacchetti orfani
 Ripara chiavi APT mancanti
 Verifica integrità pacchetti
+Controlla residui dpkg/rc
+Pulisci residui dpkg/rc
+Eliminare definitivamente i file di configurazione residui (.dpkg-old, .dpkg-dist, .ucf-dist) e purgare i pacchetti in stato rc?
+Mostra servizi falliti
+Riavvia servizi falliti
+Riavviare tutte le unità systemd attualmente in stato failed?
 Rimuovi i kernel obsoleti per liberare spazio. Il kernel in uso è protetto.
 in uso
 🗑 Rimuovi selezionati
@@ -147,9 +473,11 @@ Parametri di avvio (GRUB_CMDLINE_LINUX_DEFAULT):
 Suggerimenti in base all'hardware:
 Caratteri non ammessi nei parametri.
 💾 Salva e aggiorna GRUB
-Salvare i parametri e rigenerare GRUB? Verrà creato un backup in /etc/default/grub.debclean.bak.
+Salvare i parametri e rigenerare GRUB? Verrà creato un backup in /etc/default/grub.debutility.bak.
 Anteprima
 Aggiorna GRUB
+↩ Ripristina backup
+Ripristinare /etc/default/grub dal backup debutility.bak e aggiornare GRUB?
 Anteprima delle modifiche (non è stato cambiato nulla)
 🔊 Riavvia audio
 🌐 Riavvia rete
@@ -164,8 +492,8 @@ Aggiungi un repository (riga completa, es. "deb http://... suite componenti"):
 Aggiungi repository
 Aggiungere questo repository alle sorgenti APT?
 Release rilevata
-abilitati da DebClean
-non abilitati da DebClean
+abilitati da DebUtility
+non abilitati da DebUtility
 I Backports non sono disponibili per questa release.
 Abilita Debian Backports
 Abilitare i Debian Backports?
@@ -184,10 +512,19 @@ Hardware
 Alcuni pacchetti non sono disponibili: i componenti contrib/non-free potrebbero non essere abilitati.
 Abilita contrib e non-free
 Installa selezionati
+⭐ Seleziona consigliati
 Disattiva le applicazioni avviate automaticamente al login per ridurre i tempi di avvio.
+Filtra:
+Pulisci
 Nessuna voce di avvio automatico trovata.
+Nessuna voce corrisponde al filtro.
+🔄 Ricarica elenco
+Abilitato
+Disabilitato
+Errore avvio automatico
 Utente
 gruppo non presente
+⚠ Attenzione: stai modificando il gruppo sudo (privilegi di amministratore). Controlla bene prima di confermare.
 ✔ Applica modifiche
 Le modifiche diventano attive dopo logout o riavvio.
 Rimuovere {} kernel e aggiornare GRUB?
@@ -199,7 +536,7 @@ Strumenti di emergenza per quando qualcosa smette di funzionare: riavviano audio
 I gruppi decidono cosa può fare il tuo utente: sudo = diventare amministratore, dialout = usare le porte seriali (Arduino), vboxusers = VirtualBox, docker = Docker. Spunta quelli che ti servono, premi «Applica modifiche» e poi riavvia la sessione.
 Fixer — diagnosi e riparazione
 Kernel, Grub e Recovery
-Startup — programmi all'avvio
+Avvio e Servizi
 Gestione permessi utente
 Kernel manager
 Kernel e prestazioni
@@ -208,22 +545,81 @@ Recovery
 Driver manager
 App repository
 Repository Manager
+Programmi all'avvio
+Estensioni desktop
 Rete (USB)
 Abilitare i componenti contrib e non-free di Debian?
 Modificare i gruppi dell'utente? Serve un logout o un riavvio per renderle attive.
 nome file non valido
 ▶ Rilevo l'hardware...
+Gestione AppImage
+Rileva le applicazioni AppImage in ~/Applications, ~/AppImages o ~/.local/bin e le integra nel menu delle applicazioni di sistema.
+Nessuna AppImage trovata. Copia i tuoi file .AppImage in ~/Applications o ~/.local/bin.
+nel menu
+Rimuovi dal menu
+Integra nel menu
+▶ Avvia
+Gestore Avvio & Autostart Avanzato
+Analizza i tempi di boot di systemd e gestisci i programmi all'avvio utente con controllo dei ritardi (delay), ideale per window manager leggeri.
+⏱ Tempi di Boot (Systemd)
+🚀 Programmi Autostart & Ritardi
+Aggiorna Analisi Avvio
+Servizi ordinati per tempo di avvio
+Nessun dato disponibile. Clicca su 'Aggiorna Analisi Avvio' per scansionare il sistema.
+Disabilita
+Aggiungi nuova applicazione all'avvio con ritardo
+Nome:
+Ritardo (secondi):
+➕ Crea programma in autostart
+Programmi registrati in autostart utente
+Nessun programma trovato in ~/.config/autostart/.
+🗑 Elimina
+▶ Eseguo systemd-analyze blame...
+✔ Analisi avvio completata.
+Eliminazione elementi selezionati in corso...
+Nuova scansione in corso...
+Eliminazione completata
 Trova e rimuovi le cartelle vuote e i file da 0 byte nella tua cartella personale. Prima di eliminare vedrai sempre l'elenco e dovrai confermare.
-Includi anche le cartelle nascoste (meglio lasciare disattivato)
+Includi anche file e cartelle nascosti (meglio lasciare disattivato)
+Esegue VACUUM e REINDEX sui database interni dei browser (Firefox, Chrome, Chromium, Brave) verificando prima che siano chiusi. Velocizza l'avvio e la barra degli indirizzi senza cancellare cronologia o segnalibri.
 Cerca
+Ricerca di file e cartelle vuote in corso...
+Ricerca di cartelle vuote...
+Ricerca di file vuoti...
+Ricerca completata
 Selezionati
 Seleziona tutto
 Deseleziona tutto
 Elimina selezionati
 Confermi l'eliminazione?
+Residui di configurazione pacchetti (rc)
+Pacchetti già disinstallati in passato che mantengono vecchi file di configurazione sul disco. La loro rimozione pulisce il sistema in sicurezza.
+🔍 Cerca residui rc
+Ricerca pacchetti residui in corso...
+Purgatura pacchetti residui in corso...
+Aggiornamento elenco residui...
+Purgatura completata
+Librerie e ambienti di esecuzione di Flatpak che non sono più necessari ad alcuna applicazione installata. Rimuoverli libera spazio su disco in sicurezza.
+🔍 Cerca runtime Flatpak inutilizzati
+Ricerca runtime Flatpak inutilizzati in corso...
+Disinstalla selezionati
+Rimozione runtime Flatpak in corso...
+Aggiornamento elenco runtime inutilizzati...
+Rimozione completata
+Configurazioni utente orfane
+Cartelle di configurazione in ~/.config appartenenti a programmi che non sono più installati sul computer.
+Attenzione: eliminare una cartella in ~/.config può far perdere impostazioni o preferiti dell'applicazione.
+🔍 Cerca configurazioni orfane
+Ricerca configurazioni orfane in corso...
 Allunga la durata della batteria del notebook scegliendo come il processore usa l'energia. Funziona solo sui portatili: un PC fisso non ha la batteria.
 Questo computer non ha una batteria (è un PC fisso). Il risparmio energetico per la batteria è disponibile solo sui notebook.
 Modalità attuale del processore
+Salute e usura batteria
+Ottima
+Discreta / normale usura
+Usurata o degradata (es. fermo in magazzino)
+Salute reale
+originali
 Applica
 Le impostazioni valgono fino al riavvio del computer.
 Cosa sono i servizi
@@ -260,23 +656,159 @@ Usa i privilegi di amministratore (mostra tutti i messaggi)
 Filtro testo:
 Pulizia avanzata
 Risparmio energetico
-Servizi di sistema
 Ottimizzazione performance
 Log sistema
-DebClean riunisce in un'unica applicazione pulizia, riparazione, monitoraggio e amministrazione del sistema. Quando una funzione richiede i privilegi di amministratore, il sistema mostra una finestra per l'autorizzazione; le operazioni delicate chiedono sempre conferma prima di procedere. Qui sotto trovi la spiegazione di ogni funzione.
+Né Docker né Podman sono installati nel sistema.
+Installa docker.io o podman da terminale per gestire i container da qui.
+Motore in uso
+🧹 Pulisci spazio container (Prune)
+Eliminare tutti i container fermi, volumi e immagini orfane non utilizzate?
+Nessun container trovato su questo host.
+Arresta
+Avvia
+Log
+Manager Container (Docker / Podman)
+Estensioni Desktop
+Ambiente desktop rilevato
+Nessuna estensione GNOME trovata o comando 'gnome-extensions' non presente.
+La gestione estensioni con toggle rapido è attualmente supportata nativamente per GNOME Shell.
+cartelle esaminate
+Immagini non utilizzate
+Container fermi
+Cache di build
+Volumi orfani
+Lettura dell'utilizzo disco del motore container...
+Comando
+Cache registry Cargo
+Ultima modifica
+Ricerca di cartelle target/ nella home...
+inattiva da
+giorni
+Ricerca di cartelle node_modules nella home...
+Analisi delle cache Python...
+Rilevamento degli strumenti installati...
+Scansione degli artefatti Rust...
+Scansione degli artefatti Node.js...
+Scansione degli artefatti Python...
+Docker / Podman
+Immagini, container fermi, cache di build e volumi orfani
+Rust / Cargo
+Cartelle target/ inattive e cache del registry
+Node.js
+Cartelle node_modules inattive e cache npm / yarn / pnpm
+Python
+Cache pip e uv
+errori
+Scansione Sviluppo & Container...
+Pulizia Sviluppo & Container...
+Pulizia sviluppo completata
+elementi
+Analizza gli strumenti installati (Docker/Podman, Rust, Node.js e Python) e gli spazi recuperabili: immagini e container inutilizzati, cartelle target/ e node_modules, cache dei gestori di pacchetti.
+Scansiona di nuovo
+Avanzamento
+Installato
+Non installato
+Recuperabile:
+selezionato
+Nessun elemento da pulire rilevato.
+Strumento non installato: nessuna analisi disponibile.
+Inattivo >30 gg
+Le cartelle target/ e node_modules sono deselezionate di default: spuntale solo se vuoi ricostruirle.
+Home
+{} ({} byte)
+{} byte
+Ricercatore File Duplicati
+Trova ed elimina i file identici (confrontati tramite impronta SHA-256) sparsi nelle tue cartelle per recuperare spazio senza perdere dati.
+Cartella da scansionare:
+Dimensione minima (KB):
+Ignora file e cartelle nascoste (.*)
+Cerca duplicati
+Ricerca file duplicati in corso...
+Ricerca duplicati completata
+Nessun file duplicato in elenco. Avvia una scansione per iniziare.
+Selezionati per la quarantena
+Sposta selezionati in quarantena
+Spostamento duplicati in quarantena in corso...
+gruppi hanno tutte le copie spuntate: la prima di ogni gruppo verrà conservata.
+Gruppo
+Spostare {} file duplicati ({}) in quarantena? Potrai ripristinarli entro {} giorni.
+Guida di DebUtility
+DebUtility riunisce in un'unica applicazione pulizia, riparazione, monitoraggio e amministrazione del sistema. Quando una funzione richiede i privilegi di amministratore, il sistema mostra una finestra per l'autorizzazione; le operazioni delicate chiedono sempre conferma prima di procedere. Qui sotto trovi la spiegazione di ogni funzione.
 Cerca nella guida:
-Attenzione
 Nessun risultato per questa ricerca.
-Guida di DebClean
+Lettura dello spazio su /boot...
+Lettura dei pacchetti kernel installati...
+Individuazione del kernel in uso e del fallback...
+Kernel attuale (uname -r)
+Fallback di emergenza (secondo kernel più recente)
+Scansione kernel e /boot in corso...
+Scansione kernel completata
+Aggiornamento elenco kernel...
+Elenco kernel aggiornato
+Scansiona kernel e /boot
+Rimuovi kernel selezionati
+Spazio su /boot
+Partizione usata dal kernel e dai file di avvio
+Nessun dato su /boot: premi «Scansiona kernel e /boot».
+Occupato:
+Libero:
+Attenzione: /boot ha meno di 100 MB liberi. Rimuovi i kernel vecchi per evitare errori durante gli aggiornamenti.
+Kernel installati
+Il kernel attuale e il fallback sono protetti
+Nessun kernel rilevato. Premi «Scansiona kernel e /boot» per analizzare il sistema.
+In uso - Protetto
+Rimovibile
+✔ /boot ({}): {} usati, {} liberi su {}
+✔ {} pacchetti kernel trovati in {} versioni ({} protette)
+In esecuzione: {} · Fallback: {}
+Selezionati: {}
+{} · {} pacchetti · {}
+{} · {} · {} pacchetti
+Pacchetti di questa versione ({})
+Editor Menu Applicazioni e Window Manager
+Gestisce i lanciatori utente e rigenera i menu testuali per window manager specifici come IceWM, JWM, Openbox o Fluxbox, oltre ai menu standard XDG.
+Ambiente rilevato
+Backup e Ripristino Rapido (.desktop e WM)
+Esporta tutte le personalizzazioni dei lanciatori (~/.local/share/applications) e delle configurazioni dei Window Manager in un archivio compresso .tar.gz nella tua Home, oppure ripristinale.
+📦 Esporta Backup Menu & WM
+📂 Ripristina Backup
+Aggiungi o modifica applicazione nel menu
+Icona (opzionale):
+Categoria (es. Internet, Utility):
+➕ Salva e aggiorna menu
+Voci personalizzate registrate (clicca per caricare nei campi sopra)
+Nessuna voce personalizzata trovata.
+🗑 Rimuovi
+menu_backup
+🔄 Aggiorna dispositivi
+Nessun dispositivo caricabile o elenco non ancora aggiornato. Premi «Aggiorna dispositivi».
+Rimob./USB
+Sistema
+⏏ Smonta in sicurezza
+📌 Monta
+Montato in
+Non montato
+Tipo di condivisione
+Strumento di rete non installato
+necessario per questo protocollo.
+Installa supporto condivisione
+Server / IP:
+Cartella remota:
+Utente (opzionale):
+Nome cartella locale:
+Punto di montaggio
+🔗 Monta cartella di rete
+⏏ Smonta cartella
+Monta o smonta in sicurezza chiavette USB, partizioni e cartelle di rete (SMB, NFS o SSHFS) senza usare il terminale.
+Dischi, USB e Condivisioni di Rete
+Dischi e USB
+Condivisioni di rete (SMB / NFS / SSHFS)
 UFW blocca i tentativi di accesso non autorizzati dalla rete.
 Stato
 🛡 Attiva firewall
 Disattiva firewall
 Disattivare il firewall? Il PC sarà più esposto sulla rete.
 Installa UFW
-Servizi in ascolto
-🔎 Scansione porte locali
-Log firewall
 Sorgente:  
 Destinazione:
 💾 Avvia backup
@@ -298,7 +830,9 @@ Ripristinare il sistema a questo punto? Le modifiche successive andranno perse e
 ⏸ Pausa
 🧽 Pulisci
 Errori di sistema (journal)
-Operazioni di DebClean:
+Operazioni di DebUtility:
+Dimensione massima log journald:
+🧹 Riduci log journald
 Errori del journal:
 Sovrascrive più volte il file con dati casuali e zeri, poi lo elimina. L'operazione è irreversibile.
 File e cartelle da distruggere (uno per riga):
@@ -313,31 +847,133 @@ Lingua
 Lingua dell'interfaccia
 Opzioni generali
 Pulizia rapida della cache utente all'avvio
+Tema scuro dell'interfaccia
 Password amministratore
+Profilo di Configurazione
+Esporta o importa le preferenze e le configurazioni di DebUtility in un file TOML.
+💾 Esporta profilo
+📂 Importa profilo
 ↺ Reimposta configurazione
+Kernel Orfani e Anteprima Spazio
+Individua i kernel installati ma non in uso, calcola lo spazio disco occupato da ciascuno e mostra l'anteprima totale in MB/GB prima della rimozione.
+🔍 Scansiona kernel e spazio
+Spazio liberabile selezionato:
+Quota spazio kernel selezionato
+Nessun kernel orfano caricato nella lista interattiva. Premi 'Scansiona kernel e spazio' per analizzare il sistema.
+🗑 Rimuovi kernel selezionati
+Rimuovere definitivamente i kernel selezionati e aggiornare GRUB?
+Monitor Connessioni Attive (TCP/UDP)
+Visualizza le socket TCP/UDP attive in ascolto o connesse e il relativo processo/programma per individuare comunicazioni di rete inattese.
+🔄 Aggiorna connessioni
+Filtro:
+Nessuna connessione caricata o corrispondente al filtro. Premi 'Aggiorna connessioni'.
+Socket visualizzate
+Proto
+Locale
+Remoto
+Processo / PID
+Gestore Chiavi GPG e Repository PPA
+Verifica lo stato di validità delle chiavi GPG dei repository e PPA, evidenzia quelle scadute o prossime alla scadenza e consente il rinnovo automatico.
+🔍 Verifica chiavi GPG
+Nessuna scadenza
+🔁 Rinnova chiavi scadute/in scadenza
+Scaricare/aggiornare dai keyserver le chiavi GPG scadute o in scadenza, aggiornare i file keyring APT e rigenerare l'indice?
+Nessuna chiave GPG verificata. Premi 'Verifica chiavi GPG' per controllare la scadenza.
+Key ID
+Identità / File
+Scadenza
+Azione
+SCADUTA
+IN SCADENZA
+VALIDA
+Rinnova
+Chiavi e repository disabilitati
+Nessuna chiave o repository disabilitato trovato in .disabled.
+File chiave
+Percorso disabilitato
+Riabilita
+Audit Repository APT
+Scansiona /etc/apt/sources.list e /etc/apt/sources.list.d/* per individuare repository duplicati, Signed-By mancanti o non validi e sorgenti disabilitate.
+🔍 Scansiona repository APT
+Intervento rapido su file o riga sorgente APT
+File sorgente:
+Pattern / Riga:
+💬 Commenta righe
+🗑 Rimuovi righe
 Distruggere DEFINITIVAMENTE {} elementi? Non sarà possibile recuperarli.
-Mostra quali programmi sono in ascolto sulla rete (le «porte aperte») e i log del firewall. Serve a capire se qualcosa è esposto: se non riconosci un servizio, cercalo online prima di fermarlo.
+Scaduta ({})
+In scadenza tra {}g ({})
+Valida fino al {}
+Analizzate {} chiavi GPG ({} scadute, {} in scadenza).
+Disabilitare la chiave {} e commentare i repository associati in /etc/apt/sources.list*?
+Riabilitare la chiave {} e decommentare i repository associati in /etc/apt/sources.list*?
+Commentare le righe corrispondenti a '{}' in {} e aggiornare APT?
+Rimuovere definitivamente le righe corrispondenti a '{}' da {} e aggiornare APT?
 Copia le tue cartelle importanti (documenti, foto...) in un'altra posizione, meglio se su un disco esterno. Indica la sorgente e la destinazione e premi «Avvia backup».
 Salva l'elenco dei programmi installati e dei repository, così dopo una reinstallazione puoi ripristinare tutto con pochi clic. Non salva i tuoi file personali: per quelli usa «File e cartelle».
 Gestione backup
 Distruggi file sicuro
 Firewall UFW
-Sicurezza avanzata
+Audit permessi
+Chiavi SSH
+Scanner Rootkit
 File e cartelle
 Pacchetti di sistema
 Punti di ripristino
-▶ Scansione porte locali (1-65535)...
+▶ Scansione kernel installati e calcolo spazio su disco...
+▶ Lettura socket TCP/UDP attive e processi associati...
+▶ Scansione chiavi GPG di repository e PPA in corso...
+▶ Scansione sorgenti APT in /etc/apt/sources.list*...
+Audit permessi e file esposti
+Analizza file e cartelle sensibili (come ~/.ssh) per verificare che non siano leggibili o modificabili da altri utenti del sistema.
+Problemi rilevati
+Correggi tutti i permessi
+✔ Ottimo! Nessun file sensibile o chiave con permessi aperti rilevati.
+Gestione chiavi SSH
+Visualizza le tue chiavi pubbliche da copiare su server remoti o GitHub, oppure crea una nuova coppia ed25519.
+➕ Genera nuova chiave ED25519
+📋 Copia chiave pubblica
+Scanner Rootkit e Malware
+Esegue una scansione del sistema alla ricerca di rootkit, trojan e file modificati illegalmente usando chkrootkit o rkhunter.
+Né chkrootkit né rkhunter sono installati nel sistema.
+Installa chkrootkit e rkhunter
+🔍 Scansione rapida (chkrootkit)
+🔬 Scansione completa (rkhunter)
+Aggiorna firme rkhunter
+Gestore Servizi Systemd
+Visualizza, avvia, arresta o sblocca i servizi di sistema (inclusi quelli mascherati).
+Filtra servizi:
+Ricarica elenco
+Nessun servizio caricato. Premi 'Ricarica elenco' per scansionare il sistema.
+Smaschera e Attiva
+Ferma
+Cerca:
+Es. vlc, gimp, curl, htop...
+Aggiorna lista APT
+Mostra:
+Tutti
+Solo installati
+Non installati
+Pacchetto
+Descrizione
+Azioni
+Nessun pacchetto trovato con i filtri attuali.
+Installa
+Purga
+Dettagli pacchetto (clicca un nome sopra) e Log APT
+Esplora, cerca, installa o rimuovi pacchetti DEB dai repository ufficiali. Clicca su un pacchetto per leggerne i dettagli.
+Gestore Pacchetti (Synaptic)
 Analisi in corso...
 Sto controllando lo stato del sistema.
 Apri il Fixer per correggerli.
 Il sistema funziona, con alcuni avvisi
 Il sistema è in buono stato
 Nessun problema rilevato.
+Stato del sistema
 Ottimizza ora
 Diagnosi completa
 Utilizzo CPU (ultimi 60 secondi)
 Utilizzo RAM (ultimi 60 secondi)
-Sistema
 Memoria
 zRAM: non attiva
 Dischi
@@ -360,18 +996,15 @@ Dimensione minima (MB):
 Inutilizzati da (giorni):
 🔍 Cerca
 Calcola la dimensione delle cartelle principali di un percorso.
-Percorso:
 📏 Calcola
 Mette sotto sforzo processore e memoria per individuare instabilità.
 Durata CPU (s):
 🔥 Stress CPU
 Memoria da testare (MB):
 🧪 Test RAM
-Filtro:
 Termina
 Kill
 Chiusura forzata (SIGKILL)
-Cerca:
 pacchetti
  (mostrati i primi 300: usa la ricerca)
 Disinstalla
@@ -398,9 +1031,14 @@ Connessione Internet
 ♻ Ripristina rete e Wi-Fi
 Riavviare NetworkManager? La connessione cadrà per qualche secondo.
 Interfacce
-DebClean
+Informazioni su DebUtility
 Strumento di manutenzione, diagnosi e configurazione per Debian, scritto in Rust.
 Obiettivo: riunire in un'unica interfaccia pulizia, riparazione, monitoraggio e amministrazione del sistema.
+Crediti e Autore
+Creato da:
+Sito web:
+Programma sviluppato con il supporto e la collaborazione dell'Intelligenza Artificiale.
+Note legali e Sicurezza
 Licenza: software Open Source.
 Avviso di sicurezza: molte operazioni modificano il sistema. Esegui sempre un backup dei dati importanti prima di procedere.
 {} problemi richiedono attenzione
@@ -421,7 +1059,6 @@ Monitor temperature
 Info
 Hardware e rete
 Tutti i componenti
-About
 Analisi disco
 File grandi
 Spazio disco
@@ -433,7 +1070,6 @@ RAM
 Swap
 Disco /
 Uptime
-Temperatura
 Temperatura CPU
 Dettagli
 Libera spazio su disco
@@ -444,15 +1080,88 @@ Salute e spazio
 Proteggi i tuoi dati
 Sicurezza
 Firewall e porte
+Percorso non valido.
+Salvataggio fallito o autorizzazione negata.
+Scansiona elementi utente
+Installa nuovo Font/Tema...
+Nessun elemento personalizzato trovato o scansione non avviata. Clicca su 'Scansiona elementi utente'.
+Rimuovi elementi selezionati
+Installa o rimuovi rapidamente pacchetti di icone, temi GTK/cursore e font personali in ~/.local/share e ~/.icons. L'installazione di font aggiornerà automaticamente la cache di sistema (fc-cache).
+Gestione Font e Temi / Icone Utente
+▶ Rimozione elementi grafici utente in corso...
+✔ Rimozione completata con successo.
+Attivazione del timer systemd utente...
+Pianificazione configurata e attivata
+Rimozione della pianificazione in corso...
+Disattivazione della pianificazione in corso...
+Disattivazione di timer e servizio systemd...
+Rimozione dei file di configurazione...
+Pianificazione e file del timer rimossi
+Pianificazione disattivata
+Esecuzione di prova in corso...
+Attesa del completamento della pulizia di prova...
+Tempo limite raggiunto: la pulizia di prova è ancora in corso.
+Nessuna esecuzione pianificata
+Il servizio di pulizia è terminato con errore.
+Test completato: esito e log aggiornati nella scheda.
+Automazione con Timer Systemd
+Pianificazione attiva
+Aggiorna stato
+Esecuzione riuscita
+Esecuzione con errori
+Nessuna esecuzione registrata
+Configurazione
+Frequenza
+Ogni giorno alle 03:30, ogni lunedì alle 03:30 o il primo del mese alle 03:30.
+Da includere nella pulizia
+Seleziona almeno una categoria: verrà passata alla CLI come opzione --include.
+Le voci contrassegnate con • richiedono l'autorizzazione di amministratore durante l'esecuzione pianificata.
+Il comando pianificato è: debutility --clean --yes --json --include=...
+Aggiorna pianificazione
+Salva e attiva
+Salva impostazioni
+Esegui test ora
+Disattiva pianificazione
+Rimuovi pianificazione
+Seleziona almeno una categoria da includere nella pulizia pianificata.
+Impostazioni salvate
+Le modifiche salvate richiedono «Aggiorna pianificazione» per avere effetto.
+Esecuzione di prova avviata.
+Log dell'ultima esecuzione
+Timer attivi nel sistema
+Mostra tutti i timer utente
+Stato timer TRIM SSD (root)
+Errore nella configurazione del timer: {}
+Errore nella disattivazione del timer: {}
+Errore nella rimozione del timer: {}
+Avvio di {}...
+Errore durante il test del timer: {}
+Prossima esecuzione: {}
+Ultima esecuzione: {}
+Esito: {}
+Spazio liberato: {}
+Spazio liberato (byte): {}
+Categorie: {}
+Errore nella lettura dello stato del timer: {}
+File di stato: {}
+OnCalendar: {}
+Configura un'attività di sistema in background che avvia DebUtility in modalità headless alle ore impostate. L'esito e lo spazio liberato vengono salvati in un file di stato leggibile da questa scheda.
+Pianificatore di Manutenzione
 ▶ Cerco aggiornamenti...
 Controllo gli aggiornamenti Flatpak...
+Controllo aggiornamenti Flatpak...
+Controllo Flatpak completato
+Ricerca aggiornamenti APT in corso...
+Ricerca aggiornamenti completata
 ▶ Aggiorno le app Flatpak...
+Aggiornamento Flatpak completato
 ▶ Aggiorno i pacchetti APT...
+Aggiornamento APT completato
 Aggiornamenti non ancora controllati: premi «Cerca aggiornamenti».
 Nessun aggiornamento APT: il sistema è aggiornato.
 Nessun aggiornamento Flatpak.
 Serve riavviare il computer per completare l'aggiornamento.
-Aggiornare ora? L'operazione può richiedere diversi minuti: non spegnere il computer e non chiudere DebClean finché non finisce.
+Aggiornare ora? L'operazione può richiedere diversi minuti: non spegnere il computer e non chiudere DebUtility finché non finisce.
 Cerca aggiornamenti
 Aggiorna APT
 Aggiorna Flatpak
@@ -464,10 +1173,89 @@ Output Flatpak
 Pacchetti APT da aggiornare: {}
 App Flatpak da aggiornare: {}
 Gli aggiornamenti correggono errori e falle di sicurezza e portano novità. Premi «Cerca aggiornamenti» per vedere cosa è disponibile, poi aggiorna i pacchetti APT (il sistema Debian e i suoi programmi), le app Flatpak o tutto insieme.
+Configuratore VPN rapido
+Importa configurazioni WireGuard (.conf) o OpenVPN (.ovpn) e attivale/disattivale con un clic.
+📥 Importa file .conf / .ovpn
+🔄 Ricarica VPN
+Nessuna VPN configurata. Importa un file WireGuard o OpenVPN per iniziare.
+Disconnetti
+Connetti
+Nome di quarantena non valido.
+Elemento non trovato nella quarantena.
+File in quarantena mancante.
+Percorso originale non valido.
+I singoli file rimossi da File duplicati e dai backup di configurazione in Residui di sistema restano qui per 7 giorni. Puoi ripristinarli nel percorso originale o eliminarli definitivamente. Non è uno snapshot di sistema.
+Conservazione temporanea dei file
+Aggiorna elenco
+Elimina elementi scaduti
+Pulizia della quarantena in corso...
+Pulizia della quarantena completata
+Nessun file in quarantena.
+Scaduto
+In scadenza
+Valido
+Scadenza: oggi
+Scadenza tra giorni
+Ripristina
+Riporta il file nel percorso originale
+Elimina il file dalla quarantena senza possibilità di recupero
+Impossibile creare la cartella di quarantena ({}): {}
+Impossibile leggere la quarantena ({}): {}
+Manifesto della quarantena non valido ({}): {}
+Impossibile serializzare la quarantena: {}
+Impossibile copiare {} in quarantena: {}
+Impossibile rimuovere l'originale {}: {}
+Impossibile eliminare il file in quarantena: {}
+Esiste già un file nel percorso originale: {}
+Impossibile ricreare la cartella di destinazione: {}
+Ripristinato: {}
+Eliminato definitivamente: {}
+Scadenza automatica dopo {} giorni
+Eliminati {} elementi scaduti.
+{} file in quarantena
+Eliminare definitivamente {}? L'operazione non è reversibile.
+Percorso originale
+Modulo di origine
+Data
+Dimensione
+Riparazione pacchetti e dipendenze...
+Operazioni di sistema completate.
+Servono verifiche manuali.
+Cache pacchetti APT...
+Cache dei browser...
+Saltato ora perché un browser è aperto
+Miniature (thumbnails)...
+Compattazione database SQLite...
+Comando 'sqlite3' non trovato sul sistema.
+Ottimizzazione completata.
+Riepilogo...
+Riepilogo: {} completate, {} saltate, spazio liberato {}.
+Liberati {}
+{} elementi saltati
+Applica best-practice di sicurezza enterprise per blindare il kernel Linux, proteggere la rete contro attacchi comuni (SYN flood, spoofing), verificare i permessi critici e controllare le porte aperte.
+🔐 Hardening Kernel & Parametri di Rete (Sysctl)
+Applica parametri di sicurezza avanzati per prevenire SYN flood, IP spoofing, limitare i dump di memoria e proteggere il routing. Verrà creato un file di configurazione persistente in /etc/sysctl.d/99-debutility-hardening.conf.
+🛡 Applica Hardening Kernel e Rete
+Vuoi applicare le impostazioni di sicurezza enterprise al kernel?
+📂 Verifica Permessi File Critici
+Controlla che i file di sistema cruciali (/etc/passwd, /etc/shadow, /etc/sudoers) abbiano i permessi corretti e non siano modificabili da utenti non autorizzati.
+🔍 Esegui Audit e Ripara Permessi
+🌐 Analisi Porte Locali e Servizi in Ascolto
+Elenca tutte le porte di rete aperte sul computer e i relativi programmi associati, per identificare eventuali servizi esposti non necessari.
+📋 Mostra Porte e Servizi in Ascolto
+Blindatura & Security Hardening
 Nessun errore trovato: il sistema non ha registrato errori in questo avvio.
+Assistente Correzione Crash & Errori
+In base agli errori riscontrati nei log, DebUtility può applicare le seguenti correzioni automatiche:
+Vuoi applicare questa correzione automatica al sistema?
 Possibili soluzioni
 Non ho una soluzione specifica per questi errori. Molti messaggi sono innocui se il computer funziona bene; se noti problemi, copia la riga dell'errore e cercala online.
 In base agli errori trovati ecco cosa puoi provare:
+Home dell'utente non disponibile: impossibile scrivere le unità systemd.
+Sicura
+Con cautela
+Delicato
+Livello di rischio
 (nessun output)
 MANUTENZIONE
 SISTEMA
@@ -491,9 +1279,19 @@ Mantiene solo gli ultimi 7 giorni di log systemd (richiede password)
 Log obsoleti in /var/log
 File ruotati e compressi (.gz, .1, .old) (richiede password)
 Cache utente
-Contenuto di ~/.cache (miniature, cache delle app)
+Contenuto di ~/.cache (esclude cartelle sensibili)
 Cestino
 File nel cestino dell'utente
+Miniature (Thumbnails)
+Cache delle miniature di immagini e video (Nautilus/Dolphin)
+Cache Discord
+File temporanei e cache accumulati da Discord
+Cache Telegram
+File temporanei e cache multimediali di Telegram Desktop
+Cache Steam
+File di cache e depot temporanei di Steam
+Cache Slack
+File temporanei e cache accumulati da Slack
 Database dpkg
 Nessun pacchetto in stato incoerente
 Dipendenze APT
@@ -566,14 +1364,12 @@ Il computer regola da solo velocità e consumi: veloce quando serve, risparmia q
 Massima velocità sempre. Utile per giochi, montaggio video o lavori pesanti, ma la batteria si scarica molto più in fretta e il computer si scalda e fa più rumore. Meglio usarla con il caricabatterie collegato.
 Risparmio energetico (Powersave)
 Riduce la velocità del processore per consumare meno. La batteria dura di più e il computer resta più fresco, ma i programmi pesanti possono essere più lenti. Ideale quando sei in viaggio.
-Ripristina le impostazioni che il computer aveva prima di usare DebClean.
+Ripristina le impostazioni che il computer aveva prima di usare DebUtility.
 Ultimi 100 eventi
 Solo errori
 Avvio corrente
 Messaggi del kernel
-Cartelle vuote
 Cartelle che non contengono nulla. Eliminarle non fa perdere dati e rende l'archivio più ordinato.
-File vuoti (0 byte)
 File che non contengono dati. Spesso sono residui di operazioni interrotte.
 Attenzione: alcuni programmi usano file vuoti di proposito. Controlla l'elenco e deseleziona quelli che vuoi tenere.
 cartelle vuote verranno eliminate definitivamente:
@@ -583,7 +1379,7 @@ Schermata grafica di avvio
 Utile solo se hai problemi con la grafica
 Swap compresso in RAM
 Consigliato con driver NVIDIA proprietario
-Per sicurezza DebClean non salva la password di root: le operazioni privilegiate usano pkexec e il sistema chiede l'autorizzazione tramite la finestra di Polkit.
+Per sicurezza DebUtility non salva la password di root: le operazioni privilegiate usano pkexec e il sistema chiede l'autorizzazione tramite la finestra di Polkit.
 Performance
 Origine
  pacchetti rimossi hanno ancora file di configurazione
@@ -594,77 +1390,114 @@ Carica completa
 Stato sconosciuto
 Online
 Offline
+Giornaliera
+Settimanale
+Mensile
 PANORAMICA
 È la schermata iniziale. Mostra in un colpo d'occhio se il sistema è in buono stato, l'uso di CPU, RAM, swap e disco e il loro storico degli ultimi 60 secondi. «Ottimizza ora» esegue la pulizia con le voci già selezionate; le tessere portano alle funzioni principali.
-Libera spazio eliminando i file inutili: temporanei, cache di APT e dei browser, pacchetti orfani, log vecchi, cache utente e cestino. Spunta le voci, premi «Analizza» per vedere quanto spazio recuperi e poi «Pulisci selezionati». Le operazioni da amministratore chiedono la password una volta sola.
-La cancellazione di cronologia e cookie dei browser è irreversibile: chiudi prima i browser.
-Cerca nella tua cartella personale le cartelle vuote e i file da 0 byte. Vedi l'elenco completo, scegli cosa eliminare e confermi prima che venga cancellato qualcosa.
-Alcuni programmi usano file vuoti di proposito: controlla l'elenco prima di confermare.
+Esegue una diagnostica rapida in un clic su carico CPU e load average, uso di RAM e swap, spazio libero sulle partizioni, processi più esosi e unità systemd in stato failed, offrendo pulsanti diretti per aprire la sezione relativa.
+Barre di avanzamento
+Le operazioni lunghe (scansioni, pulizie, aggiornamenti, rimozione kernel) mostrano una barra con percentuale e la descrizione del passaggio in corso. Puoi continuare a usare l'interfaccia: i risultati compaiono automaticamente quando il lavoro in background termina.
+Libera spazio eliminando i file inutili: temporanei, cache di APT, dei browser, miniature di sistema, cache di app popolari (Discord, Telegram, Steam, Slack), pacchetti orfani, log vecchi, cache utente e cestino. Spunta le voci, premi «Analizza» per vedere quanto spazio recuperi e poi «Pulisci selezionati».
+La cancellazione della cache delle chat o dei browser richiede la chiusura delle relative applicazioni.
+Ottimizza in sicurezza
+Percorso guidato per principianti diviso in due passaggi: mostra prima un'anteprima di ciò che farà e poi il riepilogo di quanto eseguito. Ripara pacchetti e dipendenze APT/dpkg, svuota la cache dei browser, rimuove i file .deb obsoleti, i vecchi log in /var/log e le miniature, e compatta i database SQLite senza toccare password, preferiti, cronologia, cookie o Cestino.
+Le operazioni su cache e database dei browser vengono saltate o richiedono che il browser sia chiuso.
+Pulizia Profonda Browser (SQLite)
+Esegue VACUUM e REINDEX sui database interni dei browser (places.sqlite, History, Web Data di Firefox, Chrome, Chromium e Brave) verificando prima che siano chiusi. Velocizza l'avvio e la barra degli indirizzi senza cancellare cronologia o segnalibri.
+Richiede che il browser sia completamente chiuso prima di avviare l'ottimizzazione.
+Scansiona e rimuove le configurazioni residue dei pacchetti disinstallati (pacchetti RC), i backup di configurazione dimenticati, i runtime e le app Flatpak non più utilizzati, liberando spazio prezioso. Vedi l'elenco completo, scegli cosa eliminare e confermi prima che venga cancellato qualcosa. I singoli backup di configurazione vengono spostati in quarantena, non eliminati subito.
+Snapshot pre-pulizia
+In «Pulizia», «Residui di sistema», «Fixer» e «Pulizia Chirurgica» puoi spuntare «Crea snapshot di sicurezza prima di procedere». Se Timeshift o Snapper è installato, DebUtility crea un'istantanea del sistema prima di rimuovere qualsiasi elemento.
+L'opzione è disponibile solo se Timeshift o Snapper è installato. Se la creazione dello snapshot fallisce, la pulizia viene annullata e nessun file viene rimosso.
+Gestisce le applicazioni portabili in formato AppImage. Permette di scansionare le cartelle principali, integrarle automaticamente nel menu delle applicazioni di sistema con un file .desktop, avviarle o rimuoverle facilmente.
+Cerca nella tua cartella personale le cartelle vuote e i file da 0 byte, oppure individua i residui di configurazione dei pacchetti disinstallati (rc), i runtime Flatpak inutilizzati e le configurazioni utente orfane in ~/.config di programmi non più installati sul computer. Vedi l'elenco completo, scegli cosa eliminare e confermi prima che venga cancellato qualcosa.
+Scansiona le cartelle selezionate per individuare i file identici tramite impronta digitale SHA-256, indipendentemente dal nome. Lascia deselezionata la prima copia di ogni gruppo e spunta automaticamente i doppioni: quelli selezionati vengono spostati in quarantena, non cancellati subito.
+Controlla sempre l'elenco prima di confermare: il primo file di ogni gruppo viene conservato. Le copie spostate restano recuperabili per 7 giorni dalla scheda Quarantena / Ripristino.
+Raccoglie i singoli file spostati via dalle schede File duplicati e Residui di sistema (backup di configurazione). Per ogni file mostra il percorso originale, la data, la dimensione e il modulo di origine. Puoi ripristinarlo esattamente dov'era, eliminarlo definitivamente dopo averlo controllato oppure lasciare che scada automaticamente dopo 7 giorni. La cartella è privata e non sostituisce gli snapshot di sistema.
+Livello di rischio: con cautela. Il ripristino non sovrascrive un file già presente nel percorso originale: se esiste, prima sposta o rinomina quel file. Dopo la scadenza i file vengono eliminati senza recupero; per operazioni su cartelle o su più file usa gli snapshot di Timeshift/Snapper, non questa scheda.
+Pianificatore di manutenzione
+Crea un timer systemd utente che avvia direttamente DebUtility in modalità headless (--clean --yes --json) ogni giorno, ogni settimana o una volta al mese alle 03:30. Puoi scegliere le categorie da includere: cache utente e dei browser, miniature, residui APT/Flatpak, log, file temporanei e file/cartelle vuote. La scheda mostra lo stato del timer, la prossima esecuzione, l'esito dell'ultima pulizia con lo spazio liberato e il log; «Esegui test ora» avvia subito il servizio senza aspettare la scadenza.
+Le categorie contrassegnate con • richiedono l'autorizzazione di amministratore tramite pkexec durante l'esecuzione pianificata. Disattivando o rimuovendo la pianificazione vengono fermati sia il timer sia il servizio; l'ultimo log resta disponibile per la diagnosi.
 Solo per i notebook: sceglie come il processore usa l'energia. Bilanciato è per l'uso di tutti i giorni, Performance dà la massima velocità consumando di più, Powersave fa durare di più la batteria, Origine ripristina le impostazioni precedenti. Su un PC fisso la funzione non è disponibile.
 I servizi sono programmi che girano sempre in background (rete, SSH, Bluetooth, firewall...). Puoi verificare se un servizio è attivo, avviarlo o arrestarlo per la sessione corrente.
 Fermare servizi critici come networking o NetworkManager può togliere la connessione a Internet.
 Raccoglie gli strumenti per velocizzare il computer: analisi dell'avvio, regolazione della swappiness, TRIM per gli SSD, elenco dei processi più pesanti e «Ottimizza tutto» per una manutenzione completa in un colpo solo.
 Alcune operazioni richiedono i privilegi di amministratore.
-Mostra gli ultimi eventi e messaggi di sistema registrati da journalctl, con filtri per errori, avvio corrente e kernel. Serve a capire cosa è andato storto quando qualcosa non funziona.
-Controlla lo stato di salute del sistema (pacchetti, dipendenze, servizi, spazio, orologio...) e per ogni problema offre il pulsante «Correggi». «Correggi tutto» applica tutte le correzioni insieme; gli strumenti manuali riparano il database APT, le dipendenze e le chiavi e verificano l'integrità dei pacchetti.
-Le correzioni modificano pacchetti e servizi: leggi il problema prima di applicarle.
+Mostra gli ultimi eventi e messaggi di sistema registrati da journalctl, con filtri per errori, avvio corrente e kernel. Include l'Assistente Correzione Crash & Errori, che riconosce automaticamente i guasti critici (memoria esaurita OOM, pacchetti bloccati, servizi falliti, firmware mancanti) e propone pulsanti di riparazione automatica con un clic.
+Controlla lo stato di salute del sistema (pacchetti, dipendenze, servizi, spazio, orologio...) e per ogni problema offre il pulsante «Correggi», incluso lo sblocco rapido dei pacchetti bloccati in «hold» e la riparazione automatica di grub-pc quando serve configurare il disco di avvio. Dispone inoltre di una scheda dedicata per la risoluzione automatica delle chiavi GPG mancanti (NO_PUBKEY) dai repository PPA. «Correggi tutto» applica tutte le correzioni insieme; gli strumenti manuali riparano il database APT, le dipendenze e le chiavi, verificano l'integrità dei pacchetti, permettono di controllare o ripulire i file .dpkg-old, .dpkg-dist, .ucf-dist e i pacchetti residui in stato rc e offrono il controllo o il riavvio rapido delle unità systemd fallite (systemctl --failed).
+Le correzioni modificano pacchetti e servizi: leggi il problema prima di applicarle, verifica i file .dpkg-dist prima di eliminarli se hai personalizzato una configurazione e controlla quali unità sono fallite prima di riavviarle in blocco.
 Controlla se ci sono aggiornamenti per i pacchetti APT (il sistema Debian e i suoi programmi) e per le app Flatpak. Puoi aggiornare solo APT, solo Flatpak o tutto con un clic.
 Durante l'aggiornamento non spegnere il computer: alla fine potrebbe servire un riavvio.
+Analizza il registro di sistema (/var/log/apt/history.log) per mostrare l'elenco cronologico di tutte le transazioni APT eseguite. Per ogni operazione visualizza data, comando esatto e l'elenco dei pacchetti installati, aggiornati o rimossi.
+Gestisci i pacchetti Snap installati sul sistema. Puoi visualizzare l'elenco dei pacchetti con le relative versioni ed editori, aggiornarli tutti contemporaneamente o rimuovere singolarmente quelli non necessari.
+La rimozione richiede i privilegi di amministratore e l'esecuzione del demone snapd sul sistema.
+Analizza Docker/Podman e gli strumenti di sviluppo (Rust/Cargo, Node.js, Python). Mostra immagini e container inutilizzati, cartelle target/ e node_modules inattive e cache dei gestori di pacchetti, con dimensione e data dell'ultima modifica. Spunta gli elementi da eliminare e premi «Pulisci selezionati».
+Le cartelle target/ e node_modules sono deselezionate di default: ricostruirle può richiedere tempo. Il prune dei container rimuove definitivamente immagini e volumi orfani.
 Sei schede: Info (sistema, memoria, dischi, rete), Hardware e rete (processore, scheda madre, modelli dei dischi, gateway), Memoria RAM (marca, tipo e velocità di ogni modulo), Scheda video (modello, driver, memoria video, monitor), Tutti i componenti (elenco completo del computer) e About. Serve a sapere esattamente che computer hai.
 Mostra il tipo di ogni disco (SSD, NVMe, HDD, USB). Analisi disco controlla la salute con SMART, File grandi trova i file pesanti e inutilizzati, Spazio disco calcola la dimensione delle cartelle e Stress test mette sotto sforzo CPU e RAM per scoprire instabilità.
 Lo stress test porta il computer al limite: salva il lavoro prima di avviarlo.
+Analisi predittiva dello stato di salute di SSD/NVMe e batteria: calcola l'usura reale delle celle, i cicli di carica e i Terabyte scritti per prevenire guasti hardware.
+Esplora le cartelle del file system per individuare a colpo d'occhio quali file o directory occupano più spazio, permettendo di navigare tra le directory e analizzarne i contenuti in modo visivo.
+Analizzatore Disco (Treemap)
+Scansiona una cartella e ne visualizza il contenuto come mappa di rettangoli proporzionali alla dimensione: clic su un rettangolo per entrare nella cartella, «Torna su» per risalire. Il pannello «Top 20 file più pesanti» elenca i file più grandi dell'intero sottoalbero.
+Il tasto destro offre «Sposta nel cestino» ed «Elimina definitivamente»: quest'ultima operazione non è reversibile.
 Elenca i programmi in esecuzione con la CPU e la memoria che usano. «Termina» chiede al programma di chiudersi, «Kill» lo chiude con la forza se non risponde.
 Chiudere un processo di sistema può rendere instabile il computer.
 Elenca i pacchetti APT e le app Flatpak installati e permette di disinstallarli. Usa la ricerca per trovare subito quello che cerchi.
 La disinstallazione chiede conferma ma non si può annullare.
+Container (Docker / Podman)
+Permette di monitorare i container in esecuzione o fermi, leggere gli ultimi log, avviarli, arrestarli ed eseguire «Prune» per liberare lo spazio occupato da immagini orfane e volumi abbandonati.
+Il Prune elimina definitivamente i container fermi e le immagini non associate ad alcun contenitore.
 Crea una zRAM, cioè una memoria compressa dentro la RAM, per evitare rallentamenti quando la memoria scarseggia. Scegli la dimensione con il cursore e premi «Ottimizza RAM»; «Disattiva zRAM» la rimuove.
 La configurazione vale fino al riavvio.
 Mostra le temperature dei sensori. Il pulsante «Attiva modalità di raffreddamento» limita la velocità del processore per produrre meno calore e far girare più piano le ventole; «Disattiva e ripristina» torna alla velocità normale.
 Controlla con tre spie il gateway (router), il DNS e la connessione a Internet. «Ripristina rete e Wi-Fi» riavvia NetworkManager per risolvere i problemi di connessione.
 La connessione cade per qualche secondo.
-Quattro schede: Kernel manager rimuove i kernel vecchi (quello in uso è protetto), Kernel e prestazioni regola governor e swappiness, Grub modifica i parametri di avvio con un'anteprima prima di salvare, Recovery offre strumenti di emergenza (audio, rete, ricostruzione e reinstallazione di GRUB, Flathub).
-Modificare GRUB può impedire l'avvio del computer: usa sempre l'anteprima e tieni un backup.
-Driver manager rileva l'hardware e propone i driver e i firmware da installare. App repository mostra e aggiunge le sorgenti software, Repository Manager abilita i Debian Backports e aggiorna gli elenchi dei pacchetti.
-Aggiungi solo repository di cui ti fidi.
+Include quattro schede e il controllo dei kernel orfani: Kernel manager rimuove i vecchi kernel (quello in uso resta protetto) mostrando lo spazio recuperabile in MB/GB per ciascuno, Kernel e prestazioni regola governor e swappiness, Grub modifica i parametri di avvio con anteprima, salvataggio del backup (/etc/default/grub.debutility.bak) e ripristino rapido del backup, e Recovery offre strumenti di emergenza per audio, rete, ripristino/reinstallazione di GRUB e Flathub.
+Modificare GRUB può impedire l'avvio del computer: controlla sempre l'anteprima e tieni un backup.
+Mostra lo spazio occupato e libero della partizione /boot e l'elenco dei pacchetti linux-image-* e linux-headers-* installati con le relative dimensioni. Premi «Scansiona kernel e /boot», spunta i kernel vecchi da rimuovere e poi «Rimuovi kernel selezionati»: la rimozione usa pkexec apt-get purge e aggiorna GRUB.
+Il kernel in esecuzione (uname -r) e il secondo kernel più recente sono protetti: mostrano il badge verde «In uso - Protetto» e non possono essere selezionati. Lascia sempre almeno un kernel di riserva funzionante.
+Driver manager rileva l'hardware e propone i driver e i firmware da installare. App repository mostra e aggiunge le sorgenti software, Repository Manager abilita i Debian Backports e aggiorna gli elenchi dei pacchetti, e il Gestore Chiavi GPG verifica la scadenza delle chiavi, le rinnova o permette di disabilitare e riabilitare rapidamente chiavi e repository associati.
+Aggiungi solo repository di cui ti fidi e fai attenzione quando disabiliti o riabiliti sorgenti APT.
 Elenca le applicazioni che partono automaticamente al login. Togli la spunta a quelle che non ti servono per ridurre i tempi di avvio; puoi riattivarle quando vuoi.
+Permette di attivare o disattivare i programmi avviati automaticamente al login (file .desktop) con ricerca/filtro rapido per nome o file, ricaricare l'elenco e gestire le estensioni desktop dalla scheda dedicata.
+Disattivare un servizio o un programma di avvio automatico può impedire notifiche, sincronizzazioni o funzionalità del desktop: verifica sempre a cosa serve prima di disabilitarlo.
+Mostra i file system montati e le condivisioni di rete (NFS/SMB) attive sul sistema, con punti di mount, tipi di filesystem e opzioni.
+Analizza i servizi di sistema ordinati per tempo di caricamento all'accensione tramite systemd-analyze blame e gestisce i programmi all'avvio utente (~/.config/autostart/) con supporto per i ritardi (delay) e l'aggiunta personalizzata.
+Disabilitare servizi essenziali di rete o di sistema può compromettere il corretto avvio del computer.
 Abilita o disabilita l'accesso del tuo utente a funzioni speciali: amministratore (sudo), porte seriali per Arduino e USB, VirtualBox e Docker.
 Servono un logout o un riavvio perché le modifiche diventino attive.
+Cerca pacchetti nei repository ufficiali APT, visualizza lo stato (installato o disponibile) e la descrizione dettagliata. Permette di installare, rimuovere o purgare qualsiasi pacchetto con un clic, sfruttando i permessi di amministrazione in sicurezza.
+La rimozione o la purga di pacchetti di sistema essenziali può compromettere il funzionamento del sistema operativo.
+Gestisce i temi visivi dell'interfaccia, i font personalizzati e la configurazione delle icone utente per adattare l'aspetto grafico di DebUtility alle tue preferenze.
+Gestisce i lanciatori utente (.desktop), permette il backup e il ripristino rapido in un archivio compresso (.tar.gz) di tutte le personalizzazioni e dei file di configurazione dei Window Manager (IceWM, JWM, Openbox, Fluxbox), e rigenera i menu testuali per window manager leggeri e ambienti standard.
 Firewall UFW attiva o disattiva la protezione contro gli accessi non autorizzati dalla rete. Sicurezza avanzata elenca i servizi in ascolto, scansiona le porte locali e mostra i log del firewall.
 Disattivare il firewall espone di più il PC alla rete.
+Scansiona il sistema alla ricerca di agenti di telemetria, tracker o demoni di diagnostica invisibili, permettendoti di disattivarli o bloccarli con un clic. Include inoltre un blocco rapido dei principali server di telemetria a livello locale tramite il file hosts.
+Disattivare demoni di telemetria di sistema o bloccare domini di rete potrebbe alterare la reportistica di diagnostica di alcune applicazioni di terze parti.
+Disinstallazione Chirurgica
+Monitora e pulisce a fondo l'intero ciclo di vita di un'applicazione. Rimuove non solo il pacchetto ma anche tutti i frammenti invisibili sparsi nel sistema (regole udev, file in /etc, registrazioni D-Bus, policy Polkit e script cron dimenticati), impedendo l'accumulo di rifiuti invisibili.
 File e cartelle copia i tuoi dati in una destinazione a scelta. Pacchetti di sistema salva l'elenco dei pacchetti e dei repository e li ripristina dopo una reinstallazione. Punti di ripristino crea e ripristina istantanee dell'intero sistema con Timeshift.
 Ripristinare un punto riporta il sistema indietro: le modifiche successive vanno perse.
+Esporta l'intero profilo della macchina in un unico archivio compresso (.tar.gz) contenente pacchetti APT manuali, app Flatpak installate, repository aggiuntivi (/etc/apt/sources.list.d/), lanciatori utente (.desktop) e configurazioni dei Window Manager, includendo uno script automatico per ripristinare tutto sul nuovo sistema.
 Sovrascrive più volte un file o una cartella con dati casuali e poi li elimina, in modo che non siano recuperabili. Scegli il numero di passaggi.
 È irreversibile; su SSD e file system con snapshot la sovrascrittura non dà garanzie complete.
-Mostra le operazioni eseguite da DebClean e gli errori del journal di sistema; se trova errori noti ti suggerisce come risolverli. Puoi mettere in pausa il registro o pulirlo.
-Qui scegli la lingua dell'interfaccia e attivi la pulizia rapida della cache utente all'avvio. DebClean non salva la password di root: usa pkexec e il sistema chiede l'autorizzazione quando serve.
-Questa schermata spiega ogni funzione di DebClean. Usa la ricerca per trovare subito l'argomento che ti interessa.
-Memoria RAM esaurita: il sistema ha chiuso dei programmi
-Chiudi i programmi che non usi e controlla i «Processi» più pesanti. Attiva la zRAM in «Ottimizza RAM» per avere più margine. Se succede spesso, il computer ha poca RAM per l'uso che ne fai.
-Disco pieno
-Libera spazio con «Pulizia» (anche «Pulizia avanzata») ed elimina i file grandi da «Disco» → «File grandi».
-Errori di lettura o scrittura del disco: il disco potrebbe essere in avaria
-Fai subito un backup dei dati importanti, poi controlla la salute del disco in «Disco» → «Analisi disco» → «Stato e attributi». Se il disco risulta danneggiato, valuta di sostituirlo.
-Un servizio non si è avviato
-Apri il «Fixer» e premi «Correggi» su «Servizi systemd», oppure in «Pulizia» → «Servizi di sistema» controlla lo stato del servizio e riavvialo.
-Un programma si è chiuso in modo anomalo (crash)
-Riavvia il programma. Se succede ancora, aggiornalo dalla scheda «Aggiornamenti» oppure reinstallalo da «App installate».
-Manca un firmware per una periferica (Wi-Fi, scheda video, audio...)
-Apri «Repository e driver», premi «Rileva hardware e driver» e installa i firmware consigliati. Poi riavvia il computer.
-Problemi con la connessione di rete
-Apri la scheda «Rete»: premi «Test diagnostico» e, se una spia è rossa, «Ripristina rete e Wi-Fi». Controlla anche il cavo o il segnale Wi-Fi.
-Il processore si surriscalda
-Pulisci dalla polvere le prese d'aria e le ventole. In «Temperature» attiva la «Modalità di raffreddamento» finché il problema non si risolve.
-Tentativi di accesso con password errata
-Se non sei stato tu, cambia la password e attiva il firewall in «Sicurezza e firewall». Se sei stato tu, puoi ignorare il messaggio.
-Un dispositivo USB non viene riconosciuto
-Prova un'altra porta USB o un altro cavo e collega il dispositivo direttamente al computer, senza hub.
-Avviso ACPI del BIOS (molto comune)
-Di solito è innocuo e si può ignorare se il computer funziona bene. Un aggiornamento del BIOS del produttore può eliminarlo.
-Problema con il Bluetooth
-In «Pulizia» → «Servizi di sistema» controlla il servizio bluetooth e avvialo; in «Repository e driver» installa i firmware consigliati.
-Problema con l'audio
-In «Kernel, Grub e Recovery» → «Recovery» premi «Riavvia audio». Se non basta, riavvia il computer.
-Problemi con i pacchetti installati
-Apri il «Fixer» e premi «Correggi tutto», oppure «Correggi dipendenze rotte» e «Riconfigura pacchetti».
-Errori della scheda video
-Installa i driver adatti in «Repository e driver» → «Driver manager» e aggiorna il sistema da «Aggiornamenti». Se il problema resta, prova ad avviare con un kernel diverso.
+Mostra le operazioni eseguite da DebUtility e gli errori del journal di sistema; se trova errori noti ti suggerisce come risolverli. Puoi mettere in pausa il registro, pulirlo o ridurre lo spazio occupato su disco dai log di journald impostando una soglia massima in MB.
+Raccoglie automaticamente lo stato dell'hardware, lo spazio disco, eventuali pacchetti APT bloccati e gli errori recenti di sistema in un unico file HTML formattato e pronto per essere condiviso o stampato in PDF.
+Qui scegli la lingua dell'interfaccia, attivi la pulizia rapida della cache utente all'avvio e puoi esportare o importare l'intero profilo delle preferenze di DebUtility in un file TOML per trasferirlo facilmente su altri sistemi. DebUtility non salva la password di root: usa pkexec e il sistema chiede l'autorizzazione quando serve.
+MODALITÀ CLI
+Modalità CLI / headless
+Avvia DebUtility senza interfaccia grafica: è utile su server senza X11/Wayland, negli script e nelle automazioni. Senza argomenti si apre sempre la GUI; con --scan, --clean o --dry-run i comandi vengono gestiti prima dell'avvio della GUI e prima del lock di istanza singola.
+--scan e --dry-run
+--scan mostra il riepilogo della scansione sicura (cache, residui APT/Flatpak/Snap, file temporanei e file vuoti) con lo spazio totale recuperabile. --dry-run elenca esattamente cosa verrebbe rimosso senza cancellare nulla.
+Aggiungi --json per ottenere un output strutturato: in quel modo i log superflui non finiscono su stdout.
+--clean --yes
+Esegue la pulizia sicura in modo non interattivo: richiede --yes per evitare cancellazioni accidentali. Senza conferma il programma mostra un avviso e termina con codice 2.
+Le revisioni Snap disabilitate vengono rimosse solo dalla GUI.
+--include e --exclude
+Limita la pulizia alle categorie indicate o esclude alcune categorie dalla selezione predefinita. Gli identificatori sono: user_cache, browser_cache, thumbnails, empty_dirs, empty_files, apt_cache, old_logs, temp, journal, rc_packages e flatpak_unused. Esempio: debutility --clean --yes --json --include=user_cache,empty_dirs.
+Il Pianificatore usa --include con le categorie scelte nella scheda.
+Codici di uscita e JSON
+Il codice 0 indica successo, 1 un errore operativo, 2 argomenti non validi o --yes mancante. Con --json i campi sono mode, timestamp, status, exit_code, selected, total_recoverable_bytes, freed_bytes, freed_human, entries, logs e warnings. Con --clean viene scritto anche lo stato dell'ultima esecuzione in ~/.local/state/debutility, dove lo legge il Pianificatore.
+Questa schermata spiega ogni funzione di DebUtility. Usa la ricerca per trovare subito l'argomento che ti interessa.
