@@ -2,14 +2,13 @@ use crate::i18n::{self, t, tf};
 use crate::{ui, util, App, Msg};
 use eframe::egui;
 use std::net::{SocketAddr, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 #[derive(Clone)]
 pub struct Config {
     pub quick_clean: bool,
     pub lang: usize,
-    pub start_as_root: bool,
     pub dark_mode: bool,
 }
 
@@ -18,7 +17,6 @@ impl Default for Config {
         Self { 
             quick_clean: false, 
             lang: i18n::detect(),
-            start_as_root: false,
             dark_mode: true, 
         }
     }
@@ -27,39 +25,37 @@ impl Default for Config {
 impl Config {
 
 fn path() -> PathBuf {
-        let home = std::env::var("PKEXEC_UID")
-            .ok()
-            .and_then(|uid| {
-                std::fs::read_to_string("/etc/passwd").ok().and_then(|content| {
-                    content.lines().find_map(|line| {
-                        let parts: Vec<&str> = line.split(':').collect();
-                        if parts.len() > 5 && parts[2] == uid {
-                            Some(parts[5].to_string())
-                        } else {
-                            None
-                        }
-                    })
-                })
-            })
-            .unwrap_or_else(util::home);
-        PathBuf::from(home).join(".config/debclean/config")
+        PathBuf::from(util::home()).join(".config/debutility/config")
+    }
+
+    fn legacy_path() -> PathBuf {
+        PathBuf::from(util::home()).join(".config/debclean/config")
+    }
+
+    fn read_text() -> String {
+        match std::fs::read_to_string(Self::path()) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                std::fs::read_to_string(Self::legacy_path()).unwrap_or_default()
+            }
+            Err(_) => String::new(),
+        }
     }
 
     pub fn load() -> Self {
-        let text = std::fs::read_to_string(Self::path()).unwrap_or_default();
+        let text = Self::read_text();
         let lang = text
             .lines()
             .find_map(|l| l.trim().strip_prefix("lang="))
             .and_then(i18n::index_of)
             .unwrap_or_else(i18n::detect);
         let quick_clean = text.lines().any(|l| l.trim() == "quick_clean=1");
-        let start_as_root = text.lines().any(|l| l.trim() == "start_as_root=1");
         let dark_mode = if text.contains("dark_mode=") {
             text.lines().any(|l| l.trim() == "dark_mode=1")
         } else {
             true
         };
-        Config { quick_clean, lang, start_as_root, dark_mode }
+        Config { quick_clean, lang, dark_mode }
     }
 
     pub fn save(&self) {
@@ -68,10 +64,9 @@ fn path() -> PathBuf {
             let _ = std::fs::create_dir_all(d);
         }
         let _ = std::fs::write(&p, format!(
-                "quick_clean={}\nlang={}\nstart_as_root={}\ndark_mode={}\n",
+                "quick_clean={}\nlang={}\ndark_mode={}\n",
                 if self.quick_clean { 1 } else { 0 },
                 i18n::code_of(self.lang),
-                if self.start_as_root { 1 } else { 0 },
                 if self.dark_mode { 1 } else { 0 }
             ));
 
@@ -85,6 +80,7 @@ fn path() -> PathBuf {
 
     pub fn reset() {
         let _ = std::fs::remove_file(Self::path());
+        let _ = std::fs::remove_file(Self::legacy_path());
     }
 }
 
@@ -103,6 +99,27 @@ fn port_scan() -> String {
             "Porte TCP in ascolto su localhost: {}",
             open.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", ")
         )
+    }
+}
+
+/// Valida un file sorgente APT risolvendo symlink e `..`.
+///
+/// Sono ammessi solo `/etc/apt/sources.list` e file regolari direttamente in
+/// `/etc/apt/sources.list.d/`. Impedisce che percorsi come
+/// `/etc/apt/sources.list.d/../../etc/shadow` vengano modificati come root.
+fn canonical_apt_source(path: &str) -> Option<PathBuf> {
+    let canon = std::fs::canonicalize(path).ok()?;
+    if !canon.is_file() {
+        return None;
+    }
+    if canon == Path::new("/etc/apt/sources.list") {
+        return Some(canon);
+    }
+    let dir = std::fs::canonicalize("/etc/apt/sources.list.d").ok()?;
+    if canon.parent() == Some(dir.as_path()) {
+        Some(canon)
+    } else {
+        None
     }
 }
 
@@ -209,7 +226,7 @@ pub(crate) fn ui_firewall(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 let pre = "command -v timeshift >/dev/null 2>&1 || { echo 'Timeshift non installato: usa il pulsante Installa Timeshift'; exit 1; }; ";
                 ui.horizontal_wrapped(|ui| {
                     self.run_btn(ui, ctx, t("➕ Crea punto di ripristino"), "backup",
-                        &format!("{pre}timeshift --create --comments 'DebClean' --scripted"), true, None);
+                        &format!("{pre}timeshift --create --comments 'DebUtility' --scripted"), true, None);
                     self.run_btn(ui, ctx, t("📋 Elenca punti"), "backup",
                         &format!("{pre}timeshift --list --scripted"), true, None);
                     self.run_btn(ui, ctx, t("Installa Timeshift"), "backup", "apt-get -y install timeshift", true, None);
@@ -247,7 +264,7 @@ pub(crate) fn ui_firewall(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
             self.run_btn(ui, ctx, t("Errori di sistema (journal)"), "journal",
                 "journalctl -p err -b --no-pager | tail -n 100", true, None);
         });
-        ui.label(t("Operazioni di DebClean:"));
+        ui.label(t("Operazioni di DebUtility:"));
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             ui.label(t("Dimensione massima log journald:"));
@@ -291,8 +308,8 @@ pub(crate) fn ui_firewall(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
             !(p.len() > 1 && p.as_str() != "/" && **p != home && p.starts_with('/') && std::path::Path::new(p.as_str()).exists())
         });
         if let Some(b) = bad {
-            ui.colored_label(ui::WARN, t("Indica un percorso assoluto esistente (la radice e la cartella home sono protette)."));
-            ui.label(egui::RichText::new(b.as_str()).color(ui::TEXT_DIM));
+            ui.colored_label(ui::semantic_text(ui::WARN), t("Indica un percorso assoluto esistente (la radice e la cartella home sono protette)."));
+            ui.label(egui::RichText::new(b.as_str()).color(ui::text_dim()));
         }
         let safe = !paths.is_empty() && bad.is_none();
         let n = self.shred_passes;
@@ -308,7 +325,7 @@ pub(crate) fn ui_firewall(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         }
         ui.label(
             egui::RichText::new(t("Nota: su SSD e file system con journaling/snapshot (btrfs, ZFS) la sovrascrittura non offre garanzie complete."))
-                .color(crate::ui::TEXT_DIM),
+                .color(crate::ui::text_dim()),
         );
         self.show_out(ui, "shred", 200.0);
     }
@@ -339,12 +356,6 @@ pub(crate) fn ui_firewall(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
             self.cfg.save();
         }
         if ui
-            .checkbox(&mut self.cfg.start_as_root, t("Avvia sempre come amministratore (richiedi password all'avvio)"))
-            .changed()
-        {
-            self.cfg.save();
-        }
-        if ui
             .checkbox(&mut self.cfg.dark_mode, t("Tema scuro dell'interfaccia"))
             .changed()
         {
@@ -353,18 +364,18 @@ pub(crate) fn ui_firewall(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.add_space(10.0);
         ui.heading(t("Password amministratore"));
         ui.label(t(
-            "Per sicurezza DebClean non salva la password di root: le operazioni privilegiate usano pkexec \
+            "Per sicurezza DebUtility non salva la password di root: le operazioni privilegiate usano pkexec \
              e il sistema chiede l'autorizzazione tramite la finestra di Polkit.",
         ));
 
 ui.add_space(10.0);
         ui.heading(t("Profilo di Configurazione"));
-        ui.label(t("Esporta o importa le preferenze e le configurazioni di DebClean in un file TOML."));
+        ui.label(t("Esporta o importa le preferenze e le configurazioni di DebUtility in un file TOML."));
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             if ui.button(t("💾 Esporta profilo")).clicked() {
                 let out = std::process::Command::new("zenity")
-                    .args(["--file-selection", "--save", "--confirm-overwrite", "--filename=debclean-profile.toml"])
+                    .args(["--file-selection", "--save", "--confirm-overwrite", "--filename=debutility-profile.toml"])
                     .output();
                 if let Ok(res) = out {
                     if res.status.success() {
@@ -493,7 +504,7 @@ pub fn ui_orphan_kernels(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 egui::RichText::new(format!("{mb:.1} MB ({gb:.2} GB)"))
                     .strong()
                     .size(18.0)
-                    .color(ui::ACCENT),
+                    .color(ui::accent_text()),
             );
         });
         ui.add_space(6.0);
@@ -515,7 +526,7 @@ pub fn ui_orphan_kernels(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 ui.horizontal(|ui| {
                     ui.checkbox(sel, egui::RichText::new(ver.as_str()).strong());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new(format!("{mb:.1} MB")).color(ui::ACCENT));
+                        ui.label(egui::RichText::new(format!("{mb:.1} MB")).color(ui::accent_text()));
                     });
                 });
             }
@@ -566,35 +577,45 @@ pub fn ui_orphan_kernels(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .arg("ss -tupn 2>/dev/null || netstat -tupn 2>/dev/null")
                         .output();
 
+                    // Stati riconosciuti sia da `ss` sia da `netstat`.
+                    const STATES: &[&str] = &[
+                        "LISTEN", "ESTAB", "UNCONN", "TIME-WAIT", "CLOSE-WAIT", "SYN-SENT",
+                        "SYN-RECV", "FIN-WAIT-1", "FIN-WAIT-2", "LAST-ACK", "CLOSING", "CLOSED",
+                    ];
                     let mut rows: Vec<(String, String, String, String, String)> = Vec::new();
                     if let Ok(res) = out {
                         for line in String::from_utf8_lossy(&res.stdout).lines().skip(1) {
                             let cols: Vec<&str> = line.split_whitespace().collect();
-                            if cols.len() >= 5 {
-                                let proto = cols[0].to_string();
-                                let state = if proto.starts_with("udp") {
-                                    "STATELESS".to_string()
-                                } else {
-                                    cols[1].to_string()
-                                };
-                                let local = if proto.starts_with("udp") {
-                                    cols.get(3).copied().unwrap_or("-").to_string()
-                                } else {
-                                    cols.get(4).copied().unwrap_or("-").to_string()
-                                };
-                                let remote = if proto.starts_with("udp") {
-                                    cols.get(4).copied().unwrap_or("-").to_string()
-                                } else {
-                                    cols.get(5).copied().unwrap_or("-").to_string()
-                                };
-                                let proc_col = cols
-                                    .iter()
-                                    .find(|c| c.contains("users:(") || c.contains('/'))
-                                    .copied()
-                                    .unwrap_or("sconosciuto / permessi limitati")
-                                    .to_string();
-                                rows.push((proto, state, local, remote, proc_col));
+                            if cols.len() < 4 {
+                                continue;
                             }
+                            let proto = cols[0].to_string();
+                            if !proto.starts_with("tcp") && !proto.starts_with("udp") {
+                                continue;
+                            }
+
+                            // Local/remote sono i primi due token in forma `indirizzo:porta`.
+                            // Funziona sia per `ss` sia per `netstat`, TCP e UDP: prima il
+                            // codice usava indici diversi per UDP e mostrava Recv-Q come indirizzo.
+                            let mut addrs = cols.iter().skip(1).copied().filter(|c| c.contains(':'));
+                            let local = addrs.next().unwrap_or("-").to_string();
+                            let remote = addrs.next().unwrap_or("-").to_string();
+
+                            let state = cols
+                                .iter()
+                                .skip(1)
+                                .copied()
+                                .find(|c| STATES.contains(c))
+                                .unwrap_or(if proto.starts_with("udp") { "UNCONN" } else { "-" })
+                                .to_string();
+
+                            let proc_col = cols
+                                .iter()
+                                .find(|c| c.contains("users:(") || c.contains('/'))
+                                .copied()
+                                .unwrap_or("sconosciuto / permessi limitati")
+                                .to_string();
+                            rows.push((proto, state, local, remote, proc_col));
                         }
                     }
 
@@ -636,7 +657,7 @@ pub fn ui_orphan_kernels(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 ui.label(
                     egui::RichText::new(format!("{}: {}", t("Socket visualizzate"), filtered.len()))
                         .strong()
-                        .color(ui::ACCENT),
+                        .color(ui::accent_text()),
                 );
                 ui.add_space(6.0);
                 egui::ScrollArea::vertical().id_salt("net_sockets_scroll").max_height(280.0).show(ui, |ui| {
@@ -923,11 +944,15 @@ pub fn ui_gpg_keys(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                                         ));
                                     }
                                     if ui.add_enabled(!self.busy, egui::Button::new(t("Disabilita"))).clicked() {
-                                        let qk = util::shq(kid);
                                         let qp = util::shq(src_path);
+                                        // Solo cifre esadecimali: viene interpolato in un programma awk.
+                                        let kid_hex: String = kid
+                                            .chars()
+                                            .filter(|c| c.is_ascii_hexdigit())
+                                            .collect();
                                         let dis_script = format!(
                                             "mkdir -p /etc/apt/keyrings.disabled /etc/apt/trusted.gpg.d.disabled && \
-                                            if [ -f {qp} ] && [ \"{qp}\" != \"/etc/apt/trusted.gpg\" ]; then \
+                                            if [ -f {qp} ] && [ {qp} != \"/etc/apt/trusted.gpg\" ]; then \
                                                 BN=$(basename {qp}); \
                                                 DIR=$(dirname {qp}); \
                                                 if [ \"$DIR\" = \"/etc/apt/keyrings\" ]; then \
@@ -936,10 +961,11 @@ pub fn ui_gpg_keys(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                                                     mv {qp} \"/etc/apt/trusted.gpg.d.disabled/$BN\" && echo \"Spostato file chiave in /etc/apt/trusted.gpg.d.disabled/$BN\"; \
                                                 fi; \
                                             fi && \
+                                            KEYBASE=$(basename {qp}); \
                                             for SF in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do \
-                                                [ -f \"$SF\" ] || continue; \
-                                                if grep -qE \"$(basename {qp})|{qk}\" \"$SF\" 2>/dev/null; then \
-                                                    sed -i -E 's/^([[:space:]]*[^#])/\\# \\1/' \"$SF\" && echo \"Commentato repository in: $SF\"; \
+                                                [ -f \"$SF\" ] && [ ! -L \"$SF\" ] || continue; \
+                                                if grep -qF \"$KEYBASE\" \"$SF\" 2>/dev/null; then \
+                                                    awk -v key=\"$KEYBASE\" -v kid=\"{kid_hex}\" '{{ hide = ($0 ~ /^[[:space:]]*#/); hit = (index($0, key) > 0) || (length(kid) > 0 && index($0, kid) > 0); if (!hide && hit) print \"# \" $0; else print }}' \"$SF\" > \"$SF.debutility.tmp\" && cat \"$SF.debutility.tmp\" > \"$SF\" && rm -f \"$SF.debutility.tmp\" && echo \"Commentate solo le righe del repository in: $SF\"; \
                                                 fi; \
                                             done && \
                                             apt-get update"
@@ -1009,7 +1035,7 @@ pub fn ui_gpg_keys(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
 
                     for (fname, dis_path, active_path) in &disabled_keys {
                         ui.label(egui::RichText::new(fname.as_str()).monospace());
-                        ui.label(egui::RichText::new(dis_path.as_str()).color(ui::TEXT_DIM));
+                        ui.label(egui::RichText::new(dis_path.as_str()).color(ui::text_dim()));
                         if ui.add_enabled(!self.busy, egui::Button::new(t("Riabilita"))).clicked() {
                             let qf = util::shq(fname);
                             let qdis = util::shq(dis_path);
@@ -1017,12 +1043,13 @@ pub fn ui_gpg_keys(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                             let en_script = format!(
                                 "mkdir -p /etc/apt/keyrings /etc/apt/trusted.gpg.d && \
                                 if [ -f {qdis} ]; then \
-                                    mv {qdis} {qact} && echo \"Ripristinato file chiave in: {qact}\"; \
+                                    mv {qdis} {qact} && echo \"Ripristinato file chiave in: \" {qact}; \
                                 fi && \
+                                KEYBASE={qf}; \
                                 for SF in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do \
-                                    [ -f \"$SF\" ] || continue; \
-                                    if grep -qE \"{qf}\" \"$SF\" 2>/dev/null; then \
-                                        sed -i -E 's/^[[:space:]]*#[[:space:]]*//' \"$SF\" && echo \"Decommentato repository in: $SF\"; \
+                                    [ -f \"$SF\" ] && [ ! -L \"$SF\" ] || continue; \
+                                    if grep -qF \"$KEYBASE\" \"$SF\" 2>/dev/null; then \
+                                        awk -v key=\"$KEYBASE\" '{{ line=$0; if (line ~ /^[[:space:]]*#/ && index(line, key) > 0) {{ sub(/^[[:space:]]*#[[:space:]]*/, \"\", line); match($0, /^[[:space:]]*/); print substr($0, 1, RLENGTH) line }} else print }}' \"$SF\" > \"$SF.debutility.tmp\" && cat \"$SF.debutility.tmp\" > \"$SF\" && rm -f \"$SF.debutility.tmp\" && echo \"Decommentate solo le righe del repository in: $SF\"; \
                                     fi; \
                                 done && \
                                 apt-get update"
@@ -1211,20 +1238,23 @@ pub fn ui_gpg_keys(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
 
             let f_trimmed = self.apt_audit_file.trim();
             let p_trimmed = self.apt_audit_pattern.trim();
-            let valid_file = f_trimmed.starts_with("/etc/apt/")
-                && (f_trimmed == "/etc/apt/sources.list" || f_trimmed.starts_with("/etc/apt/sources.list.d/"));
-            let can_act = valid_file && !p_trimmed.is_empty() && !self.busy;
+            let valid_path = canonical_apt_source(f_trimmed);
+            let can_act = valid_path.is_some() && !p_trimmed.is_empty() && !self.busy;
+            let canon_file = valid_path
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                let qf = util::shq(f_trimmed);
+                let qf = util::shq(&canon_file);
                 let qp = util::shq(p_trimmed);
 
                 if ui.add_enabled(can_act, egui::Button::new(t("💬 Commenta righe"))).clicked() {
                     let cmd = format!(
                         "grep -nF {qp} {qf} >/dev/null 2>&1 && sed -i -E \"s/^([[:space:]]*[^#].*$(printf '%s' {qp} | sed 's/[][\\\\/.*^$]/\\\\&/g'))/# \\\\1/\" {qf} && apt-get update"
                     );
-                    let msg = tf("Commentare le righe corrispondenti a '{}' in {} e aggiornare APT?", &[&p_trimmed, &f_trimmed]);
+                    let msg = tf("Commentare le righe corrispondenti a '{}' in {} e aggiornare APT?", &[&p_trimmed, &canon_file]);
                     self.confirm = Some((msg, crate::cmd_job("apt_sources_audit", cmd, true)));
                 }
 
@@ -1232,7 +1262,7 @@ pub fn ui_gpg_keys(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                     let cmd = format!(
                         "grep -nF {qp} {qf} >/dev/null 2>&1 && sed -i -E \"/\\b$(printf '%s' {qp} | sed 's/[][\\\\/.*^$]/\\\\&/g')\\b/d\" {qf} && apt-get update"
                     );
-                    let msg = tf("Rimuovere definitivamente le righe corrispondenti a '{}' da {} e aggiornare APT?", &[&p_trimmed, &f_trimmed]);
+                    let msg = tf("Rimuovere definitivamente le righe corrispondenti a '{}' da {} e aggiornare APT?", &[&p_trimmed, &canon_file]);
                     self.confirm = Some((msg, crate::cmd_job("apt_sources_audit", cmd, true)));
                 }
             });

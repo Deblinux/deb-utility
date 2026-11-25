@@ -93,53 +93,85 @@ fn is_old_log(name: &str) -> bool {
             .unwrap_or(false)
 }
 
-fn old_logs_size(p: &Path) -> u64 {
-    let mut total = 0;
+/// File di log ruotati/compressi presenti in una cartella. Condiviso con la
+/// CLI per mostrare l'anteprima senza duplicare i criteri di pulizia.
+pub(crate) fn old_log_paths(p: &Path) -> Vec<PathBuf> {
+    let mut list = Vec::new();
     if let Ok(rd) = std::fs::read_dir(p) {
         for e in rd.flatten() {
             let path = e.path();
             if let Ok(md) = path.symlink_metadata() {
                 if md.is_dir() {
-                    total += old_logs_size(&path);
+                    list.extend(old_log_paths(&path));
                 } else if is_old_log(&e.file_name().to_string_lossy()) {
-                    total += md.len();
+                    list.push(path);
                 }
             }
         }
     }
-    total
+    list
 }
 
-pub fn size(kind: Kind) -> Option<u64> {
+fn old_logs_size(p: &Path) -> u64 {
+    old_log_paths(p)
+        .iter()
+        .filter_map(|f| std::fs::symlink_metadata(f).ok())
+        .map(|m| m.len())
+        .sum()
+}
+
+/// Percorsi su cui agisce ogni categoria. Usati sia dal calcolo delle
+/// dimensioni sia dall'anteprima CLI, così le due liste non possono divergere.
+pub(crate) fn paths(kind: Kind) -> Vec<PathBuf> {
     let h = PathBuf::from(home());
     match kind {
-        Kind::AptCache => Some(dir_size(Path::new("/var/cache/apt/archives"))),
-        Kind::BrowserCache => Some(BROWSER_CACHE.iter().map(|d| dir_size(&h.join(d))).sum()),
-        Kind::Journal => Some(dir_size(Path::new("/var/log/journal"))),
-        Kind::OldLogs => Some(old_logs_size(Path::new("/var/log"))),
-        Kind::UserCache => Some(dir_size(&h.join(".cache"))),
-        Kind::Trash => Some(dir_size(&h.join(".local/share/Trash"))),
-        Kind::Thumbnails => Some(dir_size(&h.join(".cache/thumbnails"))),
-        Kind::DiscordCache => Some(
-            dir_size(&h.join(".config/discord/Cache"))
-                + dir_size(&h.join(".config/discord/Code Cache"))
-                + dir_size(&h.join(".config/discord/GPUCache"))
-        ),
-        Kind::TelegramCache => Some(dir_size(&h.join(".local/share/TelegramDesktop/tdata/user_data/cache"))),
-        Kind::SteamCache => Some(
-            dir_size(&h.join(".local/share/Steam/appcache"))
-                + dir_size(&h.join(".local/share/Steam/depotcache"))
-        ),
-        Kind::SlackCache => Some(
-            dir_size(&h.join(".config/Slack/Cache"))
-                + dir_size(&h.join(".config/Slack/Code Cache"))
-        ),
-        _ => None,
+        Kind::AptCache => vec![PathBuf::from("/var/cache/apt/archives")],
+        Kind::BrowserCache => BROWSER_CACHE.iter().map(|d| h.join(d)).collect(),
+        Kind::Journal => vec![PathBuf::from("/var/log/journal")],
+        Kind::OldLogs => vec![PathBuf::from("/var/log")],
+        Kind::UserCache => vec![h.join(".cache")],
+        Kind::Trash => vec![h.join(".local/share/Trash")],
+        Kind::Thumbnails => vec![h.join(".cache/thumbnails")],
+        Kind::DiscordCache => vec![
+            h.join(".config/discord/Cache"),
+            h.join(".config/discord/Code Cache"),
+            h.join(".config/discord/GPUCache"),
+        ],
+        Kind::TelegramCache => vec![h.join(".local/share/TelegramDesktop/tdata/user_data/cache")],
+        Kind::SteamCache => vec![
+            h.join(".local/share/Steam/appcache"),
+            h.join(".local/share/Steam/depotcache"),
+        ],
+        Kind::SlackCache => vec![
+            h.join(".config/Slack/Cache"),
+            h.join(".config/Slack/Code Cache"),
+        ],
+        Kind::Temp | Kind::Autoremove | Kind::BrowserData | Kind::Ram => Vec::new(),
     }
 }
 
+pub fn size(kind: Kind) -> Option<u64> {
+    match kind {
+        Kind::Temp | Kind::Autoremove | Kind::BrowserData | Kind::Ram => None,
+        Kind::OldLogs => Some(old_logs_size(Path::new("/var/log"))),
+        _ => Some(paths(kind).iter().map(|p| dir_size(p)).sum()),
+    }
+}
+
+/// Come `scan`, ma notifica il progresso dopo ogni voce analizzata.
+pub fn scan_with<F: FnMut(usize, usize, &str)>(mut on_progress: F) -> Vec<Option<u64>> {
+    let list = items();
+    let total = list.len();
+    let mut sizes = Vec::with_capacity(total);
+    for (i, item) in list.iter().enumerate() {
+        on_progress(i + 1, total, item.name);
+        sizes.push(size(item.kind));
+    }
+    sizes
+}
+
 pub fn scan() -> Vec<Option<u64>> {
-    items().iter().map(|i| size(i.kind)).collect()
+    scan_with(|_, _, _| {})
 }
 
 fn remove_contents(p: &Path) -> usize {
@@ -183,7 +215,9 @@ fn remove_user_cache_contents(p: &Path) -> usize {
     errors
 }
 
-fn priv_cmd(kind: Kind) -> Option<&'static str> {
+/// Comando privilegiato associato a una categoria. La CLI lo riutilizza anche
+/// in sola lettura (sostituendo `-delete` con `-print`) per l'anteprima.
+pub(crate) fn priv_cmd(kind: Kind) -> Option<&'static str> {
     match kind {
         Kind::Temp => Some(
             "find /tmp /var/tmp -xdev -mindepth 1 -atime +2 -mtime +2 ! -type s \
@@ -203,15 +237,26 @@ fn priv_cmd(kind: Kind) -> Option<&'static str> {
 }
 
 pub fn clean_all(kinds: &[Kind]) -> Vec<String> {
+    clean_all_with_progress(kinds, |_, _, _| {})
+}
+
+/// Come `clean_all`, ma aggiorna un osservatore dopo ogni operazione completata.
+pub fn clean_all_with_progress<F: FnMut(usize, usize, &str)>(
+    kinds: &[Kind],
+    mut on_progress: F,
+) -> Vec<String> {
     let mut log = Vec::new();
+    let total = kinds.len().max(1);
     let privs: Vec<&str> = kinds.iter().filter_map(|k| priv_cmd(*k)).collect();
     if !privs.is_empty() {
+        on_progress(0, total, "Pulizia di sistema in corso...");
         let (ok, out) = run_shell(&privs.join("; "), true);
         let mark = if ok { "✔" } else { "✘" };
         log.push(format!("{mark} Pulizia di sistema: {}", tail(out.trim(), 3).replace('\n', " | ")));
+        on_progress(1, total, log.last().map(String::as_str).unwrap_or("Pulizia di sistema"));
     }
     let h = PathBuf::from(home());
-    for k in kinds {
+    for (idx, k) in kinds.iter().enumerate() {
         match k {
             Kind::BrowserCache => {
                 let e: usize = BROWSER_CACHE.iter().map(|d| remove_contents(&h.join(d))).sum();
@@ -257,6 +302,8 @@ pub fn clean_all(kinds: &[Kind]) -> Vec<String> {
             }
             _ => {}
         }
+        let label = log.last().map(String::as_str).unwrap_or("Pulizia in corso...");
+        on_progress(idx + 1, total, label);
     }
     log
 }
@@ -425,16 +472,6 @@ fn walkdir_simple(dir: &Path, max_depth: usize) -> Result<Vec<PathBuf>, std::io:
         }
     }
     Ok(results)
-}
-
-pub fn purge_rc_pkgs(pkgs: &[String]) -> bool {
-    if pkgs.is_empty() {
-        return true;
-    }
-    let mut args = vec!["purge", "-y"];
-    args.extend(pkgs.iter().map(|s| s.as_str()));
-    let status = std::process::Command::new("apt-get").args(&args).status();
-    status.map(|s| s.success()).unwrap_or(false)
 }
 
 pub fn remove_unused_flatpaks(selected: &[String]) -> bool {

@@ -192,6 +192,13 @@ pub fn estimated_bytes() -> u64 {
 }
 
 pub fn run_safe_optimize_report() -> OptimizeReport {
+    run_safe_optimize_report_with(|_, _, _| {})
+}
+
+/// Come `run_safe_optimize_report`, con avanzamento a passi (fase, step, totale).
+pub fn run_safe_optimize_report_with<F: FnMut(usize, usize, &str)>(
+    mut on_progress: F,
+) -> OptimizeReport {
     let mut report = OptimizeReport::default();
     let h = PathBuf::from(home());
     let browser_open = any_browser_running();
@@ -201,6 +208,7 @@ pub fn run_safe_optimize_report() -> OptimizeReport {
     let browser_before = cleaner::size(Kind::BrowserCache).unwrap_or(0);
     let thumbs_before = cleaner::size(Kind::Thumbnails).unwrap_or(0);
 
+    on_progress(1, 6, t("Riparazione pacchetti e dipendenze..."));
     let sys_script = "\
 DEBIAN_FRONTEND=noninteractive dpkg --configure -a; \
 apt-get install -f -y; \
@@ -235,6 +243,7 @@ find /var/log -type f \\( -name '*.gz' -o -name '*.old' -o -regex '.*\\.[0-9]+' 
         });
     }
 
+    on_progress(2, 6, t("Cache pacchetti APT..."));
     let apt_after = cleaner::size(Kind::AptCache).unwrap_or(0);
     let logs_after = cleaner::size(Kind::OldLogs).unwrap_or(0);
     let apt_freed = apt_before.saturating_sub(apt_after);
@@ -255,6 +264,7 @@ find /var/log -type f \\( -name '*.gz' -o -name '*.old' -o -regex '.*\\.[0-9]+' 
         freed_bytes: Some(logs_freed),
     });
 
+    on_progress(3, 6, t("Cache dei browser..."));
     if browser_open {
         report.entries.push(StepResult {
             status: StepStatus::Skipped,
@@ -282,6 +292,7 @@ find /var/log -type f \\( -name '*.gz' -o -name '*.old' -o -regex '.*\\.[0-9]+' 
         });
     }
 
+    on_progress(4, 6, t("Miniature (thumbnails)..."));
     let thumb_errs = remove_dir_children(&h.join(".cache/thumbnails"));
     let thumb_after = cleaner::size(Kind::Thumbnails).unwrap_or(0);
     let thumb_freed = thumbs_before.saturating_sub(thumb_after);
@@ -297,6 +308,7 @@ find /var/log -type f \\( -name '*.gz' -o -name '*.old' -o -regex '.*\\.[0-9]+' 
         freed_bytes: Some(thumb_freed),
     });
 
+    on_progress(5, 6, t("Compattazione database SQLite..."));
     if browser_open {
         report.entries.push(StepResult {
             status: StepStatus::Skipped,
@@ -331,6 +343,7 @@ find /var/log -type f \\( -name '*.gz' -o -name '*.old' -o -regex '.*\\.[0-9]+' 
         }
     }
 
+    on_progress(6, 6, t("Riepilogo..."));
     report
 }
 

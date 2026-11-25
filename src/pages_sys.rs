@@ -1,6 +1,6 @@
 use crate::i18n::{t, tf, tr};
 use crate::pages_clean::POWER_SAVE_ORIG;
-use crate::{cleaner, cmd_job, health, ui, util, App, Job, Msg, Page};
+use crate::{clean_and_scan_job, cleaner, cmd_job, health, ui, util, App, Job, Msg, Page};
 use eframe::egui;
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
@@ -263,26 +263,28 @@ impl App {
         } else {
             (ui::GOOD, t("Il sistema è in buono stato").to_string(), t("Nessun problema rilevato.").to_string(), true)
         };
-        ui::card(ui, |ui| {
+        ui::card_tinted(ui, col, |ui| {
             ui.horizontal(|ui| {
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(112.0, 112.0), egui::Sense::hover());
                 let pnt = ui.painter_at(rect);
                 let c = rect.center();
-                pnt.circle_filled(c, 52.0, col);
-                let stroke = egui::Stroke::new(8.0_f32, egui::Color32::WHITE);
+                pnt.circle_filled(c, 55.0, ui::alpha(col, 40));
+                pnt.circle_filled(c, 47.0, col);
+                let stroke = egui::Stroke::new(7.0_f32, egui::Color32::WHITE);
                 if mark_ok {
                     pnt.add(egui::Shape::line(
-                        vec![c + egui::vec2(-20.0, 0.0), c + egui::vec2(-6.0, 15.0), c + egui::vec2(20.0, -14.0)],
+                        vec![c + egui::vec2(-19.0, 0.0), c + egui::vec2(-6.0, 14.0), c + egui::vec2(19.0, -13.0)],
                         stroke,
                     ));
                 } else {
-                    pnt.line_segment([c + egui::vec2(0.0, -24.0), c + egui::vec2(0.0, 6.0)], stroke);
-                    pnt.circle_filled(c + egui::vec2(0.0, 22.0), 5.0, egui::Color32::WHITE);
+                    pnt.line_segment([c + egui::vec2(0.0, -22.0), c + egui::vec2(0.0, 6.0)], stroke);
+                    pnt.circle_filled(c + egui::vec2(0.0, 21.0), 5.0, egui::Color32::WHITE);
                 }
-                ui.add_space(16.0);
+                ui.add_space(18.0);
                 ui.vertical(|ui| {
-                    ui.label(egui::RichText::new(head).size(27.0).strong().color(egui::Color32::WHITE));
-                    ui.label(egui::RichText::new(sub).size(17.0).color(ui::TEXT_DIM));
+                    ui.label(egui::RichText::new(t("Stato del sistema")).size(12.0).strong().color(ui::text_dim()));
+                    ui.label(egui::RichText::new(head).size(26.0).strong().color(ui::text_primary()));
+                    ui.label(egui::RichText::new(sub).size(16.0).color(ui::text_dim()));
 ui.add_space(14.0);
 
 ui.horizontal(|ui| {
@@ -295,19 +297,11 @@ ui.horizontal(|ui| {
                         if ui::primary_button(ui, t("Ottimizza ora"), !self.busy).clicked() {
                             let kinds: Vec<cleaner::Kind> =
                                 self.items.iter().filter(|i| i.selected).map(|i| i.kind).collect();
-                            self.spawn(ctx, move |ch| {
-                                for l in cleaner::clean_all(&kinds) {
-                                    ch.send(Msg::Log(l));
-                                }
-                                ch.send(Msg::Sizes(cleaner::scan()));
-                                ch.send(Msg::Checks(health::run_checks()));
-                            });
+                            self.spawn(ctx, clean_and_scan_job("cleaner", kinds, true));
                         }
                         let sec_btn = egui::Button::new(
                             egui::RichText::new(t("Diagnosi completa")).strong().size(18.0),
-                        )
-                        .min_size(egui::vec2(215.0, 50.0))
-                        .rounding(egui::Rounding::same(12.0));
+                        );
                         if ui.add_enabled(!self.busy, sec_btn).clicked() {
                             goto = Some(Page::Fixer);
                         }
@@ -320,8 +314,44 @@ ui.horizontal(|ui| {
                 });
             });
         });
-        ui.add_space(10.0);
+
+        // Striscia di indicatori sintetici, come nelle utility classiche di Windows.
+        ui.add_space(12.0);
+        ui::section(ui, "◆", "Indicatori", "Panoramica immediata del sistema");
+        let recoverable: u64 = self.items.iter().filter(|it| it.selected).filter_map(|it| it.size).sum();
+        let updates = if self.upd_checked {
+            (self.upd_apt.len() + self.upd_flat.len()).to_string()
+        } else {
+            "—".to_string()
+        };
+        let disk_frac = self
+            .info
+            .disks
+            .iter()
+            .find(|d| d.mount == "/")
+            .map(|d| d.total.saturating_sub(d.free).max(1) as f32 / d.total.max(1) as f32)
+            .unwrap_or(0.0);
+        let kpis = [
+            ("✓", problems.to_string(), "Problemi", if problems > 0 { ui::semantic_text(ui::BAD) } else { ui::semantic_text(ui::GOOD) }),
+            ("▣", cleaner::fmt_bytes(recoverable), "Da recuperare", ui::accent_text()),
+            ("↻", updates, "Aggiornamenti", ui::semantic_text(ui::BLUE_LIGHT)),
+            ("◉", format!("{:.0}%", disk_frac * 100.0), "Disco", ui::semantic_text(ui::level_color(disk_frac))),
+        ];
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(12.0, 12.0);
+            let total_w = 4.0 * 192.0 + 3.0 * 12.0;
+            let pad = ((ui.available_width() - total_w) * 0.5).max(0.0);
+            if pad > 0.0 {
+                ui.add_space(pad);
+            }
+            for (glyph, value, name, tint) in kpis {
+                ui::kpi_card(ui, glyph, &value, name, tint);
+            }
+        });
+
+        ui.add_space(14.0);
         ui.spacing_mut().item_spacing = egui::vec2(12.0, 12.0);
+        ui::section(ui, "▦", "Accessi rapidi", "Gli strumenti più usati, a portata di clic");
 
 let tile_w = 290.0_f32;
         let gap = 12.0_f32;
@@ -364,7 +394,8 @@ let tile_w = 290.0_f32;
             }
             None => (0.0, "n/d".to_string()),
         };
-ui::card(ui, |ui| {
+ui::section(ui, "◉", "Stato in tempo reale", "CPU, memoria, swap e spazio su disco");
+        ui::card_tinted(ui, ui::ACCENT, |ui| {
             let gap_x = ui.spacing().item_spacing.x;
             let gauge_w = 184.0_f32;
             let row_w = 4.0 * gauge_w + 3.0 * gap_x;
@@ -385,8 +416,9 @@ ui::card(ui, |ui| {
             });
         });
 
-        ui.add_space(10.0);
-        ui::card(ui, |ui| {
+        ui.add_space(14.0);
+        ui::section(ui, "↗", "Andamento", "Ultimi 60 secondi di attività");
+        ui::card_tinted(ui, ui::BLUE_LIGHT, |ui| {
             ui.label(egui::RichText::new(t("Utilizzo CPU (ultimi 60 secondi)")).strong());
             ui::sparkline(ui, &self.cpu_hist, ui::ACCENT, 80.0);
             ui.add_space(8.0);
@@ -394,7 +426,8 @@ ui::card(ui, |ui| {
             ui::sparkline(ui, &self.ram_hist, egui::Color32::from_rgb(100, 160, 250), 80.0);
         });
 
-        ui.add_space(10.0);
+        ui.add_space(14.0);
+        ui::section(ui, "ⓘ", "Informazioni di sistema", "Dettagli della macchina");
         ui::card(ui, |ui| {
             egui::Grid::new("dash").num_columns(2).striped(true).show(ui, |ui| {
                 for (k, v) in &i.os {
@@ -581,7 +614,7 @@ ui::card(ui, |ui| {
                         egui::RichText::new(format!("{}: {}", t("Tipo di disco"), tr(kind)))
                             .size(19.0)
                             .strong()
-                            .color(ui::ACCENT),
+                            .color(ui::accent_text()),
                     );
                 }
                 let dev = util::shq(&self.disk_sel);
@@ -851,7 +884,7 @@ ui::card(ui, |ui| {
             }
         }
         ui.add_space(6.0);
-        ui.label(egui::RichText::new(t("Nota: la configurazione vale fino al riavvio.")).color(crate::ui::TEXT_DIM));
+        ui.label(egui::RichText::new(t("Nota: la configurazione vale fino al riavvio.")).color(crate::ui::text_dim()));
         self.show_out(ui, "zram", 100.0);
     }
 
@@ -884,7 +917,9 @@ ui::card(ui, |ui| {
                 + "for d in /sys/devices/system/cpu/cpu*/cpufreq; do m=$(cat $d/cpuinfo_max_freq 2>/dev/null) && echo $((m*70/100)) > $d/scaling_max_freq; done; \
                    if command -v powerprofilesctl >/dev/null 2>&1; then powerprofilesctl set power-saver; fi; echo 'OK'";
             let off = "for d in /sys/devices/system/cpu/cpu*/cpufreq; do cat $d/cpuinfo_max_freq > $d/scaling_max_freq; done; \
-                       if [ -s /var/lib/debclean/power_profile_orig ] && command -v powerprofilesctl >/dev/null 2>&1; then powerprofilesctl set \"$(cat /var/lib/debclean/power_profile_orig)\"; fi; echo 'OK'";
+                       P=/var/lib/debutility/power_profile_orig; \
+                       if [ ! -s \"$P\" ] && [ -s /var/lib/debclean/power_profile_orig ]; then P=/var/lib/debclean/power_profile_orig; fi; \
+                       if [ -s \"$P\" ] && command -v powerprofilesctl >/dev/null 2>&1; then powerprofilesctl set \"$(cat \"$P\")\"; fi; echo 'OK'";
             ui.horizontal_wrapped(|ui| {
                 self.run_btn(
                     ui, ctx, t("Attiva modalità di raffreddamento"), "cool", &on, true,
@@ -957,16 +992,22 @@ pub(crate) fn ui_about(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
         ui.vertical_centered(|ui| {
             ui.add_space(10.0);
             ui.add(
-                egui::Image::new(egui::include_image!("../assets/debclean.png"))
+                egui::Image::new(egui::include_image!("../assets/debutility.png"))
                     .max_size(egui::vec2(72.0, 72.0)),
             );
             ui.add_space(10.0);
         });
         
-        ui::title(ui, t("Informazioni su DebClean"));
+        ui::title(ui, t("Informazioni su DebUtility"));
         
         ui::card(ui, |ui| {
-            ui.heading(egui::RichText::new("DebClean").size(24.0).strong().color(ui::ACCENT));
+            ui.heading(egui::RichText::new("DebUtility").size(24.0).strong().color(ui::accent_text()));
+            ui.label(
+                egui::RichText::new(format!("v{}", crate::APP_VERSION))
+                    .size(17.0)
+                    .strong()
+                    .color(ui::accent_text()),
+            );
             ui.add_space(4.0);
             ui.label(egui::RichText::new(t("Strumento di manutenzione, diagnosi e configurazione per Debian, scritto in Rust.")).size(16.0));
             ui.add_space(8.0);
@@ -986,7 +1027,7 @@ pub(crate) fn ui_about(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
                 ui.hyperlink("https://www.andrealinux.it");
             });
             ui.add_space(6.0);
-            ui.label(egui::RichText::new(t("Programma sviluppato con il supporto e la collaborazione dell'Intelligenza Artificiale.")).color(ui::TEXT_DIM));
+            ui.label(egui::RichText::new(t("Programma sviluppato con il supporto e la collaborazione dell'Intelligenza Artificiale.")).color(ui::text_dim()));
         });
 
         ui.add_space(10.0);

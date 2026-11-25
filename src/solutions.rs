@@ -114,7 +114,7 @@ pub fn get_active_fixes(out: &str) -> Vec<CrashFixOption> {
             problem_title: "Memoria RAM esaurita: il sistema ha chiuso dei programmi",
             explanation: "Il kernel ha attivato l'OOM Killer. Ottimizziamo la swappiness e liberiamo la cache.",
             fix_label: "Ottimizza RAM e Swappiness",
-            fix_script: "sync; echo 3 > /proc/sys/vm/drop_caches; sysctl -w vm.swappiness=20 && echo 'vm.swappiness=20' > /etc/sysctl.d/99-debclean-oom.conf && echo '✔ Memoria ottimizzata'",
+            fix_script: "sync; echo 3 > /proc/sys/vm/drop_caches; sysctl -w vm.swappiness=20 && echo 'vm.swappiness=20' > /etc/sysctl.d/99-debutility-oom.conf && echo '✔ Memoria ottimizzata'",
             needs_root: true,
         });
     }
@@ -166,7 +166,7 @@ impl App {
                     ui.label(
                         egui::RichText::new(t("Nessun errore trovato: il sistema non ha registrato errori in questo avvio."))
                             .size(17.0)
-                            .color(ui::GOOD),
+                            .color(ui::semantic_text(ui::GOOD)),
                     );
                 });
             }
@@ -184,8 +184,8 @@ impl App {
         // Sezione Pulsanti di Correzione Automatica
         if !active_fixes.is_empty() {
             ui::card(ui, |ui| {
-                ui.label(egui::RichText::new(t("Assistente Correzione Crash & Errori")).strong().size(19.0).color(ui::WARN));
-                ui.label(t("In base agli errori riscontrati nei log, DebClean può applicare le seguenti correzioni automatiche:"));
+                ui.label(egui::RichText::new(t("Assistente Correzione Crash & Errori")).strong().size(19.0).color(ui::semantic_text(ui::WARN)));
+                ui.label(t("In base agli errori riscontrati nei log, DebUtility può applicare le seguenti correzioni automatiche:"));
                 
                 for fix in active_fixes {
                     ui.add_space(8.0);
@@ -214,10 +214,10 @@ impl App {
                 ui.label(t("Non ho una soluzione specifica per questi errori. Molti messaggi sono innocui se il computer funziona bene; se noti problemi, copia la riga dell'errore e cercala online."));
                 return;
             }
-            ui.label(egui::RichText::new(t("In base agli errori trovati ecco cosa puoi provare:")).color(ui::TEXT_DIM));
+            ui.label(egui::RichText::new(t("In base agli errori trovati ecco cosa puoi provare:")).color(ui::text_dim()));
             for (problem, fix) in hits {
                 ui.add_space(8.0);
-                ui.label(egui::RichText::new(format!("• {}", t(problem))).strong().size(17.0).color(ui::WARN));
+                ui.label(egui::RichText::new(format!("• {}", t(problem))).strong().size(17.0).color(ui::semantic_text(ui::WARN)));
                 ui.label(egui::RichText::new(t(fix)).size(16.0));
             }
         });
@@ -234,7 +234,7 @@ pub fn fix_missing_gpg_keys_script() -> String {
     else
         for key in $MISSING_KEYS; do
             echo "🔑 Chiave mancante trovata: $key. Recupero in corso..."
-            sudo gpg --no-default-keyring --keyring /etc/apt/trusted.gpg.d/debclean-fixed.gpg --keyserver keyserver.ubuntu.com --recv-keys "$key"
+            sudo gpg --no-default-keyring --keyring /etc/apt/trusted.gpg.d/debutility-fixed.gpg --keyserver keyserver.ubuntu.com --recv-keys "$key"
         done
         echo "▶ Aggiornamento indici APT con le nuove chiavi..."
         sudo apt update

@@ -1,28 +1,243 @@
 use crate::i18n::{t, tr};
+use crate::pages_disk_treemap::DiskCategory;
 use crate::Page;
-use eframe::egui::{self, vec2, Align2, Color32, FontId, Pos2, Rect, Sense, Shape, Stroke, TextStyle};
+use eframe::egui::epaint::{Mesh, TextureId, Vertex, WHITE_UV};
+use eframe::egui::{self, vec2, Align2, Color32, FontId, Pos2, Rect, Rounding, Sense, Shape, Stroke, TextStyle};
 use std::collections::VecDeque;
 use std::f32::consts::{PI, TAU};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 pub const ACCENT: Color32 = Color32::from_rgb(0, 196, 168);
+/// Accento tenue per il tema scuro.
+pub const ACCENT_LIGHT: Color32 = Color32::from_rgb(103, 232, 204);
+/// Accento scuro e leggibile per il tema chiaro.
+pub const ACCENT_DEEP: Color32 = Color32::from_rgb(13, 148, 136);
+pub const BLUE_LIGHT: Color32 = Color32::from_rgb(96, 165, 250);
 pub const TEXT: Color32 = Color32::from_rgb(238, 242, 248);
 pub const TEXT_DIM: Color32 = Color32::from_rgb(172, 183, 199);
-pub const BTN_BLUE: Color32 = Color32::from_rgb(37, 99, 235);
-pub const BTN_BLUE_HOVER: Color32 = Color32::from_rgb(59, 130, 246);
-pub const BTN_BLUE_ACTIVE: Color32 = Color32::from_rgb(29, 78, 216);
+/// Testo ad alto contrasto per il tema chiaro.
+pub const TEXT_LIGHT: Color32 = Color32::from_rgb(15, 23, 42);       // #0f172a
+pub const TEXT_DIM_LIGHT: Color32 = Color32::from_rgb(71, 85, 105);  // #475569
 pub const BAR_BLUE: Color32 = Color32::from_rgb(37, 99, 235);
+
+/// Pulsante primario: verde acqua pieno, senza gradienti né maschere.
+pub const PRIMARY_BG: Color32 = Color32::from_rgb(20, 184, 166);   // #14b8a6
+pub const PRIMARY_BG_HOVER: Color32 = Color32::from_rgb(13, 148, 136); // #0d9488
+/// Pulsante secondario globale, usato da tutti i widget standard.
+pub const SECONDARY_BG: Color32 = Color32::from_rgb(30, 41, 59);       // #1e293b
+pub const SECONDARY_BG_HOVER: Color32 = Color32::from_rgb(38, 50, 73);
+pub const SECONDARY_BG_ACTIVE: Color32 = Color32::from_rgb(26, 36, 52);
+pub const SECONDARY_BORDER: Color32 = Color32::from_rgb(51, 65, 85);   // #334155
+pub const SECONDARY_TEXT: Color32 = Color32::from_rgb(248, 250, 252);  // #f8fafc
+// Varianti chiare dei pulsanti secondari / campi di testo.
+pub const SECONDARY_BG_LIGHT: Color32 = Color32::from_rgb(241, 245, 249); // #f1f5f9
+pub const SECONDARY_BG_HOVER_LIGHT: Color32 = Color32::from_rgb(226, 232, 240);
+pub const SECONDARY_BG_ACTIVE_LIGHT: Color32 = Color32::from_rgb(203, 213, 225);
+pub const SECONDARY_BORDER_LIGHT: Color32 = Color32::from_rgb(148, 163, 184); // #94a3b8
+/// Bordo e sfondo delle card in tutte le schede.
+pub const CARD_BORDER: Color32 = Color32::from_rgb(38, 51, 72);        // #263348
+pub const CARD_BORDER_LIGHT: Color32 = Color32::from_rgb(203, 213, 225); // #cbd5e1
+
+/// Tema attivo, aggiornato da `apply_theme`: usato da tutti gli helper di testo.
+static DARK_MODE: AtomicBool = AtomicBool::new(true);
+pub fn is_dark() -> bool {
+    DARK_MODE.load(Ordering::Relaxed)
+}
+/// Testo principale adattato al tema attivo.
+pub fn text_primary() -> Color32 {
+    if is_dark() { TEXT } else { TEXT_LIGHT }
+}
+/// Testo secondario adattato al tema attivo.
+pub fn text_dim() -> Color32 {
+    if is_dark() { TEXT_DIM } else { TEXT_DIM_LIGHT }
+}
+/// Accento leggibile sullo sfondo del tema attivo.
+pub fn accent_bright() -> Color32 {
+    if is_dark() { ACCENT_LIGHT } else { ACCENT_DEEP }
+}
+/// Colore accento per il testo: invariato in dark, scuro in light.
+pub fn accent_text() -> Color32 {
+    if is_dark() { ACCENT } else { ACCENT_DEEP }
+}
+/// Adatta un colore semantico (verde/giallo/rosso/blu) al tema attivo:
+/// in light viene scurito per garantire contrasto sui fondi chiari.
+pub fn semantic_text(c: Color32) -> Color32 {
+    if is_dark() { c } else { mix(c, TEXT_LIGHT, 0.35) }
+}
 pub const GOOD: Color32 = Color32::from_rgb(70, 195, 105);
 pub const WARN: Color32 = Color32::from_rgb(244, 168, 40);
 pub const BAD: Color32 = Color32::from_rgb(232, 72, 72);
 
+// ---- Livelli di sicurezza / rischio delle sezioni ---------------------------------------------
+
+/// Classificazione unica dei tre livelli di rischio associati alle pagine.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum RiskLevel {
+    Safe = 0,     // Sicura
+    Caution = 1,  // Con cautela
+    Delicate = 2, // Delicato
+}
+
+impl RiskLevel {
+    /// Colore semantico: verde, ambra, rosso.
+    pub fn color(self) -> Color32 {
+        match self {
+            RiskLevel::Safe => Color32::from_rgb(34, 197, 94),    // #22c55e
+            RiskLevel::Caution => Color32::from_rgb(245, 158, 11), // #f59e0b
+            RiskLevel::Delicate => Color32::from_rgb(239, 68, 68), // #ef4444
+        }
+    }
+
+    /// Etichetta tradotta tramite il sistema `t(...)`.
+    pub fn label(self) -> &'static str {
+        match self {
+            RiskLevel::Safe => t("Sicura"),
+            RiskLevel::Caution => t("Con cautela"),
+            RiskLevel::Delicate => t("Delicato"),
+        }
+    }
+
+    /// Glifo usato nella pillola dell'intestazione.
+    pub fn icon(self) -> &'static str {
+        match self {
+            RiskLevel::Safe => "✔",
+            RiskLevel::Caution => "⚠",
+            RiskLevel::Delicate => "❗",
+        }
+    }
+
+    /// Colore del testo con contrasto adattato al tema attivo.
+    pub fn text_color(self) -> Color32 {
+        let c = self.color();
+        if is_dark() {
+            mix(c, Color32::WHITE, 0.22)
+        } else {
+            semantic_text(c)
+        }
+    }
+}
+
+/// Rischio di una pagina: unica fonte per sidebar e intestazioni.
+pub fn page_risk(page: Page) -> RiskLevel {
+    use Page::*;
+    use RiskLevel::*;
+    match page {
+        // Lettura / diagnostica / impostazioni dell'app: nessuna modifica del sistema.
+        Dashboard | Info | Disk | DiskAnalyzer | DiskTreemap | Procs | Temps | Network | Boot
+        | History | Report | Guide | About | HardwareHealth | Settings | Backup | Log
+        | SafeOptimize => Safe,
+        // Pulizie e modifiche utente: utili, ma da eseguire con attenzione.
+        Cleaner | AdvancedCleaner | Updates | Timers | Snaps | Containers | AppImages | Apps
+        | Themes | MenuEditor | TelemetryGuard | Mounts | DevContainers | Zram | Quarantine => Caution,
+        // Cancellazioni definitive, permessi, bootloader e componenti di sistema.
+        Fixer | Kernel | KernelBoot | Repos | Startup | Perms | Services | Synaptic | Shredder
+        | AppLifecycle | Duplicates | Firewall | SecurityHardening | SystemEditor => Delicate,
+    }
+}
+
+/// Livello della pagina correntemente visualizzata (usato da `title`).
+static CURRENT_RISK: AtomicU8 = AtomicU8::new(RiskLevel::Safe as u8);
+
+pub fn set_current_page(page: Page) {
+    CURRENT_RISK.store(page_risk(page) as u8, Ordering::Relaxed);
+}
+
+pub fn current_risk() -> RiskLevel {
+    match CURRENT_RISK.load(Ordering::Relaxed) {
+        1 => RiskLevel::Caution,
+        2 => RiskLevel::Delicate,
+        _ => RiskLevel::Safe,
+    }
+}
+
+// ---- Treemap: colori per categoria -------------------------------------------------------------
+// I colori base sono fissi; il riempimento viene mixato con lo sfondo del tema
+// attivo, così i rettangoli restano leggibili sia in dark che in light mode.
+
+/// Tinta base di una categoria della treemap.
+pub fn treemap_base(cat: DiskCategory) -> Color32 {
+    match cat {
+        DiskCategory::Media => Color32::from_rgb(186, 85, 211),    // viola
+        DiskCategory::Archive => Color32::from_rgb(234, 146, 55),  // arancio
+        DiskCategory::Development => Color32::from_rgb(64, 140, 235), // blu
+        DiskCategory::Documents => Color32::from_rgb(62, 175, 120), // verde
+        DiskCategory::System => Color32::from_rgb(120, 134, 156),  // grigio
+    }
+}
+
+/// Riempimento adattato al tema attivo (`hovered` → più saturo).
+pub fn treemap_fill(cat: DiskCategory, hovered: bool) -> Color32 {
+    let bg = if is_dark() {
+        Color32::from_rgb(25, 31, 42)
+    } else {
+        Color32::from_rgb(248, 250, 252)
+    };
+    let strength = if is_dark() {
+        if hovered { 0.68 } else { 0.42 }
+    } else if hovered {
+        0.52
+    } else {
+        0.30
+    };
+    mix(bg, treemap_base(cat), strength)
+}
+
+/// Bordo del rettangolo; quello selezionato usa l'accento globale.
+pub fn treemap_stroke(cat: DiskCategory, selected: bool) -> Stroke {
+    if selected {
+        Stroke::new(2.5_f32, accent_bright())
+    } else {
+        Stroke::new(1.0_f32, mix(treemap_base(cat), text_primary(), 0.28))
+    }
+}
+
 pub const HIST_LEN: usize = 60;
+
+/// Interpolazione tra due colori (t = 0 → `a`, t = 1 → `b`).
+pub fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
+    a.lerp_to_gamma(b, t.clamp(0.0, 1.0))
+}
+
+/// Copia un colore cambiandone solo l'alfa.
+pub fn alpha(c: Color32, a: u8) -> Color32 {
+    Color32::from_rgba_unmultiplied(c[0], c[1], c[2], a)
+}
+
+/// Badge/riquadro icona universale: quadrato arrotondato 8px, sfondo al 15%
+/// del colore accento e glifo centrato. Nessuna maschera, clip-path o ritaglio.
+pub fn icon_badge(p: &egui::Painter, rect: Rect, tint: Color32, glyph: &str, font_size: f32) {
+    p.rect_filled(rect, 8.0, alpha(tint, 38)); // 38/255 ≈ 15%
+    p.text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        glyph,
+        FontId::proportional(font_size),
+        if is_dark() { mix(tint, Color32::WHITE, 0.65) } else { mix(tint, TEXT_LIGHT, 0.35) },
+    );
+}
+
+/// Striscia orizzontale sfumata (usata come filetto luminoso sulle card).
+pub fn accent_strip(p: &egui::Painter, rect: Rect, from: Color32, to: Color32) {
+    let steps = 28usize.max(1);
+    let w = rect.width() / steps as f32;
+    for i in 0..steps {
+        let x0 = rect.left() + w * i as f32;
+        let x1 = rect.left() + w * (i as f32 + 1.15);
+        p.rect_filled(
+            Rect::from_min_max(Pos2::new(x0, rect.top()), Pos2::new(x1.min(rect.right()), rect.bottom())),
+            0.0,
+            mix(from, to, i as f32 / (steps - 1) as f32),
+        );
+    }
+}
 
 // Funzioni di sfondo dinamiche in base al tema
 pub fn sidebar_bg(ctx: &egui::Context) -> Color32 {
     if ctx.style().visuals.dark_mode {
         Color32::from_rgb(16, 21, 29)
     } else {
-        Color32::from_rgb(230, 234, 240)
+        Color32::from_rgb(241, 245, 249)
     }
 }
 
@@ -30,53 +245,73 @@ pub fn content_bg(ctx: &egui::Context) -> Color32 {
     if ctx.style().visuals.dark_mode {
         Color32::from_rgb(25, 31, 42)
     } else {
-        Color32::from_rgb(245, 247, 250)
+        Color32::from_rgb(248, 250, 252)
     }
 }
 
 pub fn card_bg(ctx: &egui::Context) -> Color32 {
     if ctx.style().visuals.dark_mode {
-        Color32::from_rgb(36, 44, 58)
+        Color32::from_rgb(22, 32, 50) // #162032
     } else {
         Color32::from_rgb(255, 255, 255)
     }
 }
 
+pub fn card_border(ctx: &egui::Context) -> Color32 {
+    if ctx.style().visuals.dark_mode {
+        CARD_BORDER
+    } else {
+        CARD_BORDER_LIGHT
+    }
+}
+
 pub fn apply_theme(ctx: &egui::Context, dark_mode: bool) {
+    // Aggiorna prima lo stato globale: tutti gli helper di testo lo leggono.
+    DARK_MODE.store(dark_mode, Ordering::Relaxed);
+
     let mut v = if dark_mode {
         egui::Visuals::dark()
     } else {
         egui::Visuals::light()
     };
-    v.panel_fill = content_bg(ctx);
-    v.window_fill = card_bg(ctx);
+    v.panel_fill = if dark_mode { Color32::from_rgb(25, 31, 42) } else { Color32::from_rgb(248, 250, 252) };
+    v.window_fill = if dark_mode { Color32::from_rgb(36, 44, 58) } else { Color32::WHITE };
     v.extreme_bg_color = if dark_mode {
         Color32::from_rgb(14, 28, 58)
     } else {
-        Color32::from_rgb(230, 235, 240)
+        Color32::from_rgb(248, 250, 252) // sfondo chiaro dei campi di testo
     };
-    v.selection.bg_fill = ACCENT;
-    v.selection.stroke = Stroke::new(1.0_f32, if dark_mode { Color32::WHITE } else { Color32::BLACK });
-    v.window_rounding = egui::Rounding::same(12.0);
+    v.selection.bg_fill = alpha(ACCENT, 90);
+    v.selection.stroke = Stroke::new(1.4_f32, accent_bright());
+    v.hyperlink_color = accent_bright();
+    v.window_rounding = Rounding::same(14.0);
+    v.menu_rounding = Rounding::same(10.0);
+    v.window_shadow = egui::Shadow {
+        offset: vec2(0.0, 12.0),
+        blur: 28.0,
+        spread: -4.0,
+        color: if dark_mode { Color32::from_black_alpha(110) } else { Color32::from_black_alpha(28) },
+    };
 
-    let text_color = if dark_mode { TEXT } else { Color32::from_rgb(30, 40, 50) };
-    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, text_color);
-    v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, if dark_mode { Color32::WHITE } else { Color32::BLACK });
-    v.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, if dark_mode { Color32::WHITE } else { Color32::BLACK });
-    v.widgets.active.fg_stroke = Stroke::new(1.0_f32, if dark_mode { Color32::WHITE } else { Color32::BLACK });
+    // Testo: scuro su tema chiaro, chiaro su tema scuro.
+    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, text_primary());
 
-    let r = egui::Rounding::same(8.0);
-    v.widgets.inactive.rounding = r;
-    v.widgets.hovered.rounding = r;
-    v.widgets.active.rounding = r;
-    let normal = BTN_BLUE;
-    let hover = BTN_BLUE_HOVER;
-    v.widgets.inactive.bg_fill = normal;
-    v.widgets.inactive.weak_bg_fill = normal;
-    v.widgets.hovered.bg_fill = hover;
-    v.widgets.hovered.weak_bg_fill = hover;
-    v.widgets.active.bg_fill = BTN_BLUE_ACTIVE;
-    v.widgets.active.weak_bg_fill = BTN_BLUE_ACTIVE;
+    // Pulsanti secondari e campi di testo: stessa palette in tutto il tema.
+    let r = egui::Rounding::same(6.0);
+    let border = Stroke::new(1.0_f32, if dark_mode { SECONDARY_BORDER } else { SECONDARY_BORDER_LIGHT });
+    let widget_text = if dark_mode { SECONDARY_TEXT } else { TEXT_LIGHT };
+    for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
+        w.rounding = r;
+        w.fg_stroke = Stroke::new(1.0_f32, widget_text);
+        w.bg_stroke = border;
+    }
+    v.widgets.inactive.bg_fill = if dark_mode { SECONDARY_BG } else { SECONDARY_BG_LIGHT };
+    v.widgets.inactive.weak_bg_fill = v.widgets.inactive.bg_fill;
+    v.widgets.hovered.bg_fill = if dark_mode { SECONDARY_BG_HOVER } else { SECONDARY_BG_HOVER_LIGHT };
+    v.widgets.hovered.weak_bg_fill = v.widgets.hovered.bg_fill;
+    v.widgets.active.bg_fill = if dark_mode { SECONDARY_BG_ACTIVE } else { SECONDARY_BG_ACTIVE_LIGHT };
+    v.widgets.active.weak_bg_fill = v.widgets.active.bg_fill;
+    v.button_frame = true;
     ctx.set_visuals(v);
 
     let mut style = (*ctx.style()).clone();
@@ -89,39 +324,97 @@ pub fn apply_theme(ctx: &egui::Context, dark_mode: bool) {
     ]
     .into();
     style.spacing.item_spacing = vec2(10.0, 9.0);
-    style.spacing.button_padding = vec2(14.0, 7.0);
+    // padding uniforme dei pulsanti secondari: 6px verticali, 14px orizzontali
+    style.spacing.button_padding = vec2(14.0, 6.0);
     style.spacing.interact_size.y = 30.0;
+    style.spacing.slider_width = 220.0;
+    style.spacing.scroll.bar_width = 11.0;
     ctx.set_style(style);
 }
 
+/// Pillola arrotondata con icona ed etichetta del livello di rischio.
+fn risk_badge(ui: &mut egui::Ui, risk: RiskLevel) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(142.0, 26.0), Sense::hover());
+    let p = ui.painter();
+    let fill_alpha = if is_dark() { 46 } else { 34 };
+    let stroke_alpha = if is_dark() { 170 } else { 220 };
+    p.rect_filled(rect, 13.0, alpha(risk.color(), fill_alpha));
+    p.rect_stroke(rect, 13.0, Stroke::new(1.0_f32, alpha(risk.color(), stroke_alpha)));
+    let text = format!("{} {}", risk.icon(), risk.label());
+    p.text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        text,
+        FontId::proportional(14.0),
+        risk.text_color(),
+    );
+    resp.on_hover_text(risk.label())
+}
+
+/// Titolo di pagina con barra accentata, badge del rischio a destra e filetto sfumato sottostante.
 pub fn title(ui: &mut egui::Ui, text: &'static str) {
+    let title_col = text_primary();
     ui.horizontal(|ui| {
-        let (r, _) = ui.allocate_exact_size(vec2(6.0, 34.0), Sense::hover());
-        ui.painter().rect_filled(r, 3.0, ACCENT);
-        let title_col = if ui.visuals().dark_mode { Color32::WHITE } else { Color32::from_rgb(20, 30, 40) };
+        let (r, _) = ui.allocate_exact_size(vec2(6.0, 30.0), Sense::hover());
+        ui.painter().rect_filled(r, 3.0, if is_dark() { ACCENT } else { ACCENT_DEEP });
+        ui.add_space(3.0);
         ui.label(egui::RichText::new(t(text)).size(30.0).strong().color(title_col));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            risk_badge(ui, current_risk());
+        });
     });
-    ui.add_space(12.0);
+    let w = ui.available_width().min(420.0);
+    let (r, _) = ui.allocate_exact_size(vec2(w, 2.0), Sense::hover());
+    accent_strip(ui.painter(), r, alpha(accent_bright(), 150), Color32::TRANSPARENT);
+    ui.add_space(13.0);
+}
+
+/// Intestazione di sezione con icona, titolo e sottotitolo.
+pub fn section(ui: &mut egui::Ui, glyph: &str, name: &'static str, sub: &'static str) {
+    ui.horizontal(|ui| {
+        let (badge, _) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::hover());
+        icon_badge(ui.painter(), badge, ACCENT, glyph, 17.0);
+        ui.vertical(|ui| {
+            ui.label(egui::RichText::new(t(name)).strong().size(18.0));
+            if !sub.is_empty() {
+                ui.label(egui::RichText::new(t(sub)).size(13.0).color(text_dim()));
+            }
+        });
+    });
+    ui.add_space(8.0);
 }
 
 pub fn sub_tabs(ui: &mut egui::Ui, sub: &mut usize, names: &[&'static str]) {
-    ui.horizontal_wrapped(|ui| {
-        for (i, n) in names.iter().enumerate() {
-            ui.selectable_value(sub, i, egui::RichText::new(t(*n)).size(17.0));
-        }
-    });
-    ui.separator();
+    egui::Frame::default()
+        .fill(card_bg(ui.ctx()))
+        .rounding(10.0)
+        .inner_margin(egui::Margin::same(10.0))
+        .stroke(Stroke::new(1.0_f32, card_border(ui.ctx())))
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(5.0, 4.0);
+                for (i, n) in names.iter().enumerate() {
+                    ui.selectable_value(sub, i, egui::RichText::new(t(*n)).size(16.0));
+                }
+            });
+        });
+    ui.add_space(11.0);
 }
 
+/// Card pulita, usata da TUTTE le schede: sfondo #162032, bordo 1px #263348,
+/// raggio 10px, padding interno uniforme. Nessun riflesso/header interno.
 pub fn card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
-    let dark_mode = ui.visuals().dark_mode;
-    let bg = card_bg(ui.ctx());
-    let stroke_color = if dark_mode { Color32::from_white_alpha(16) } else { Color32::from_black_alpha(20) };
+    card_tinted(ui, ACCENT, add)
+}
+
+/// Variante di [`card`] mantenuta per compatibilità: lo stile è identico.
+pub fn card_tinted<R>(ui: &mut egui::Ui, _tint: Color32, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     egui::Frame::default()
-        .fill(bg)
-        .rounding(12.0)
+        .fill(card_bg(ui.ctx()))
+        .rounding(10.0)
         .inner_margin(egui::Margin::same(16.0))
-        .stroke(Stroke::new(1.0_f32, stroke_color))
+        .stroke(Stroke::new(1.0_f32, card_border(ui.ctx())))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             add(ui)
@@ -129,22 +422,45 @@ pub fn card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
         .inner
 }
 
+/// Card "KPI" per la dashboard: numero grande, etichetta e icona colorata.
+pub fn kpi_card(ui: &mut egui::Ui, glyph: &str, value: &str, name: &'static str, tint: Color32) {
+    let (rect, _) = ui.allocate_exact_size(vec2(192.0, 96.0), Sense::hover());
+    let p = ui.painter_at(rect);
+    p.rect_filled(rect, 10.0, card_bg(ui.ctx()));
+    p.rect_stroke(rect, 10.0, Stroke::new(1.0_f32, card_border(ui.ctx())));
+    let icon = Rect::from_min_size(Pos2::new(rect.left() + 14.0, rect.top() + 13.0), vec2(32.0, 32.0));
+    icon_badge(&p, icon, tint, glyph, 17.0);
+    p.text(
+        Pos2::new(rect.left() + 56.0, rect.top() + 29.0),
+        Align2::LEFT_CENTER,
+        value,
+        FontId::proportional(23.0),
+        tint,
+    );
+    p.text(
+        Pos2::new(rect.left() + 14.0, rect.bottom() - 17.0),
+        Align2::LEFT_CENTER,
+        t(name),
+        FontId::proportional(12.5),
+        text_dim(),
+    );
+}
+
 pub fn hint(ui: &mut egui::Ui, text: &'static str) {
     let dark_mode = ui.visuals().dark_mode;
-    let fill = if dark_mode { Color32::from_rgb(20, 52, 104) } else { Color32::from_rgb(215, 230, 250) };
-    let text_col = if dark_mode { Color32::WHITE } else { Color32::from_rgb(20, 40, 70) };
+    let fill = if dark_mode { Color32::from_rgb(20, 52, 92) } else { Color32::from_rgb(218, 232, 250) };
+    let text_col = text_primary();
     egui::Frame::default()
         .fill(fill)
         .rounding(10.0)
         .inner_margin(egui::Margin::same(12.0))
-        .stroke(Stroke::new(1.0_f32, BTN_BLUE_HOVER))
+        .stroke(Stroke::new(1.0_f32, alpha(ACCENT, 160)))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             let w = ui.available_width();
             ui.horizontal(|ui| {
-                let (r, _) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::hover());
-                ui.painter().circle_filled(r.center(), 12.0, BTN_BLUE_HOVER);
-                ui.painter().text(r.center(), Align2::CENTER_CENTER, "i", FontId::proportional(17.0), Color32::WHITE);
+                let (r, _) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::hover());
+                icon_badge(ui.painter(), r, ACCENT, "i", 18.0);
                 ui.vertical(|ui| {
                     ui.set_max_width((w - 56.0).max(200.0));
                     ui.label(egui::RichText::new(t(text)).size(16.0).color(text_col));
@@ -154,18 +470,48 @@ pub fn hint(ui: &mut egui::Ui, text: &'static str) {
     ui.add_space(8.0);
 }
 
+/// Pulsante principale globale: sfondo pieno #14b8a6 (hover #0d9488),
+/// testo bianco centrato, raggio 8px, padding uniforme 10px 18px.
+/// Nessun gradiente, mesh, ombra o maschera: elimina l'artefatto triangolare.
 pub fn primary_button(ui: &mut egui::Ui, text: &str, enabled: bool) -> egui::Response {
-    ui.add_enabled(
+    let old_padding = ui.spacing().button_padding;
+    let old_inactive = ui.visuals().widgets.inactive.weak_bg_fill;
+    let old_hovered = ui.visuals().widgets.hovered.weak_bg_fill;
+    let old_active = ui.visuals().widgets.active.weak_bg_fill;
+
+    ui.spacing_mut().button_padding = vec2(18.0, 10.0);
+    ui.visuals_mut().widgets.inactive.weak_bg_fill = if enabled { PRIMARY_BG } else { alpha(PRIMARY_BG, 110) };
+    ui.visuals_mut().widgets.hovered.weak_bg_fill = PRIMARY_BG_HOVER;
+    ui.visuals_mut().widgets.active.weak_bg_fill = PRIMARY_BG_HOVER;
+
+    let resp = ui.add_enabled(
         enabled,
-        egui::Button::new(egui::RichText::new(text).strong().size(20.0).color(Color32::WHITE))
-            .fill(Color32::from_rgb(0, 150, 136))
-            .rounding(12.0)
-            .min_size(vec2(235.0, 50.0)),
-    )
+        egui::Button::new(egui::RichText::new(text).size(19.0).strong().color(Color32::WHITE))
+            .stroke(Stroke::NONE)
+            .rounding(8.0),
+    );
+
+    ui.spacing_mut().button_padding = old_padding;
+    ui.visuals_mut().widgets.inactive.weak_bg_fill = old_inactive;
+    ui.visuals_mut().widgets.hovered.weak_bg_fill = old_hovered;
+    ui.visuals_mut().widgets.active.weak_bg_fill = old_active;
+
+    resp.on_hover_cursor(if enabled { egui::CursorIcon::PointingHand } else { egui::CursorIcon::NotAllowed })
 }
 
 pub fn bar(frac: f32) -> egui::ProgressBar {
-    egui::ProgressBar::new(frac).fill(BAR_BLUE).desired_height(26.0)
+    egui::ProgressBar::new(frac)
+        .fill(BAR_BLUE)
+        .desired_height(26.0)
+        .rounding(8.0)
+}
+
+/// Barra di avanzamento dei job: verde acqua, alta e animata.
+pub fn progress_bar(frac: f32) -> egui::ProgressBar {
+    egui::ProgressBar::new(frac)
+        .fill(ACCENT)
+        .desired_height(18.0)
+        .rounding(9.0)
 }
 
 pub fn heat_color(celsius: f32) -> Color32 {
@@ -219,10 +565,12 @@ fn page_color(p: Page) -> Color32 {
         Page::History => (80, 140, 200),
         Page::AdvancedCleaner => (100, 200, 150),
         Page::Duplicates => (100, 180, 220),
+        Page::Quarantine => (90, 170, 190),
         Page::Services => (120, 180, 240),
         Page::Snaps => (120, 180, 240),
         Page::Report => (0, 168, 150),
         Page::DiskAnalyzer => (53, 162, 159),
+        Page::DiskTreemap => (37, 150, 190),
         Page::Boot => (53, 162, 159),
         Page::AppImages => (114, 9, 183),
         Page::MenuEditor => (140, 100, 220),
@@ -233,15 +581,20 @@ fn page_color(p: Page) -> Color32 {
         Page::SystemEditor => (53, 162, 159),
         Page::TelemetryGuard => (46, 139, 87),
         Page::Mounts => (50, 150, 220),
+        Page::DevContainers => (40, 150, 180),
+        Page::KernelBoot => (70, 140, 190),
     };
     Color32::from_rgb(r, g, b)
 }
 
 pub fn page_icon(p: &egui::Painter, c: Pos2, size: f32, page: Page) {
     let tile = Rect::from_center_size(c, vec2(size, size));
-    p.rect_filled(tile, size * 0.28, page_color(page));
+    let tint = page_color(page);
+    // Badge quadrato arrotondato, sfondo al 15% dell'accento: nessun ritaglio.
+    p.rect_filled(tile, 8.0, alpha(tint, 38));
     let s = size * 0.28;
-    let w = Color32::WHITE;
+    let dark = p.ctx().style().visuals.dark_mode;
+    let w = if dark { mix(tint, Color32::WHITE, 0.75) } else { mix(tint, TEXT_LIGHT, 0.35) };
     let st = Stroke::new((size * 0.075).max(1.5), w);
     let th = Stroke::new((size * 0.055).max(1.2), w);
     let pt = |x: f32, y: f32| Pos2::new(c.x + x * s, c.y + y * s);
@@ -288,6 +641,12 @@ pub fn page_icon(p: &egui::Painter, c: Pos2, size: f32, page: Page) {
         Page::DiskAnalyzer => {
             p.circle_stroke(c, s, st);
             p.text(c, Align2::CENTER_CENTER, "📊", FontId::proportional(size * 0.55), w);
+        }
+        Page::DiskTreemap => {
+            p.rect_stroke(Rect::from_min_max(pt(-1.0, -0.95), pt(0.15, 0.1)), 2.0, st);
+            p.rect_stroke(Rect::from_min_max(pt(0.28, -0.95), pt(1.0, -0.25)), 2.0, st);
+            p.rect_stroke(Rect::from_min_max(pt(-1.0, 0.23), pt(-0.05, 1.0)), 2.0, st);
+            p.rect_stroke(Rect::from_min_max(pt(0.08, 0.23), pt(1.0, 1.0)), 2.0, st);
         }
         Page::SecurityHardening => {
             // Disegna qui l'icona personalizzata per il modulo di sicurezza (es. uno scudo o linee guida)
@@ -423,6 +782,18 @@ pub fn page_icon(p: &egui::Painter, c: Pos2, size: f32, page: Page) {
             p.circle_stroke(c, s, st);
             p.text(c, Align2::CENTER_CENTER, "📁", FontId::proportional(size * 0.55), w);
         }
+        Page::Quarantine => {
+            // Freccia di ripristino: cerchio aperto con punta in alto.
+            let pts: Vec<Pos2> = (1..=20)
+                .map(|i| {
+                    let a = -PI * 0.65 + i as f32 / 20.0 * PI * 1.5;
+                    pt(0.85 * a.cos(), 0.85 * a.sin())
+                })
+                .collect();
+            poly(pts, st);
+            line(pt(-0.25, -0.85), pt(0.2, -0.95), st);
+            line(pt(0.2, -0.95), pt(0.55, -0.6), st);
+        }
         Page::Services => {
             p.circle_stroke(c, s, st);
             p.text(c, Align2::CENTER_CENTER, "⚙", FontId::proportional(size * 0.55), w);
@@ -459,66 +830,134 @@ pub fn page_icon(p: &egui::Painter, c: Pos2, size: f32, page: Page) {
             rr(pt(-0.9, -0.55), pt(0.9, 0.55));
             line(pt(-0.55, 0.2), pt(0.55, 0.2), th);
         }
+        Page::DevContainers => {
+            // Contenitore con scomparti: stessa icona per sidebar e tile.
+            rr(pt(-0.95, -0.65), pt(0.95, 0.65));
+            line(pt(-0.95, -0.2), pt(0.95, -0.2), th);
+            line(pt(0.0, -0.65), pt(0.0, 0.65), th);
+        }
+        Page::KernelBoot => {
+            // Stivale di kernel: tre livelli sovrapposti.
+            rr(pt(-0.95, -0.75), pt(0.95, -0.15));
+            rr(pt(-0.95, -0.15), pt(0.95, 0.35));
+            rr(pt(-0.95, 0.35), pt(0.95, 0.85));
+        }
     }
 }
 
-pub fn sidebar_item(ui: &mut egui::Ui, page: Page, name: &str, selected: bool) -> bool {
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::click());
-    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
-    let p = ui.painter();
+/// Voce della sidebar. `name` è l'etichetta corta disegnata, `full_name` il nome
+/// completo mostrato nel tooltip insieme al livello di rischio.
+pub fn sidebar_item(
+    ui: &mut egui::Ui,
+    page: Page,
+    name: &str,
+    full_name: &str,
+    selected: bool,
+) -> bool {
+    // Geometria del pallino: il testo può occupare solo lo spazio che lo precede.
+    const DOT_INSET: f32 = 15.0;
+    const DOT_RADIUS: f32 = 4.5;
+    const DOT_CLEARANCE: f32 = 20.0;
+    const TEXT_LEFT: f32 = 54.0;
+
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
     let dark_mode = ui.visuals().dark_mode;
+    let risk = page_risk(page);
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    let resp = resp.on_hover_text(format!(
+        "{}\n{}: {}",
+        full_name,
+        t("Livello di rischio"),
+        risk.label()
+    ));
+
+    let p = ui.painter();
     if selected {
-        let sel_bg = if dark_mode { Color32::from_rgb(36, 52, 66) } else { Color32::from_rgb(210, 220, 235) };
+        let sel_bg = if dark_mode { Color32::from_rgb(34, 54, 66) } else { Color32::from_rgb(209, 224, 234) };
         p.rect_filled(rect, 10.0, sel_bg);
-        p.rect_filled(Rect::from_min_size(rect.left_top() + vec2(0.0, 8.0), vec2(4.0, 26.0)), 2.0, ACCENT);
     } else if resp.hovered() {
-        let hover_bg = if dark_mode { Color32::from_white_alpha(12) } else { Color32::from_black_alpha(15) };
+        let hover_bg = if dark_mode { Color32::from_white_alpha(16) } else { Color32::from_black_alpha(14) };
         p.rect_filled(rect, 10.0, hover_bg);
     }
-    page_icon(p, Pos2::new(rect.left() + 28.0, rect.center().y), 30.0, page);
+    let icon = Rect::from_center_size(Pos2::new(rect.left() + 30.0, rect.center().y), vec2(30.0, 30.0));
+    page_icon(p, icon.center(), 27.0, page);
     let text_color = if dark_mode {
-        if selected { Color32::WHITE } else { TEXT }
+        if selected { Color32::WHITE } else { text_primary() }
     } else {
-        if selected { Color32::BLACK } else { Color32::from_rgb(40, 50, 60) }
+        text_primary()
     };
-    p.text(
-        Pos2::new(rect.left() + 54.0, rect.center().y),
-        Align2::LEFT_CENTER,
-        name,
-        FontId::proportional(17.0),
+
+    // Elide il testo prima del pallino: nessuna etichetta, anche molto lunga o
+    // con finestra stretta, può sovrapporsi o arrivare a ridosso del indicatore.
+    let text_left = rect.left() + TEXT_LEFT;
+    let dot_center = Pos2::new(rect.right() - DOT_INSET, rect.center().y);
+    let text_right = dot_center.x - DOT_RADIUS - DOT_CLEARANCE;
+    let max_width = (text_right - text_left).max(0.0);
+    let mut job = egui::text::LayoutJob::single_section(
+        name.to_string(),
+        egui::text::TextFormat {
+            font_id: FontId::proportional(if selected { 18.0 } else { 17.0 }),
+            color: text_color,
+            ..Default::default()
+        },
+    );
+    job.wrap = egui::text::TextWrapping::truncate_at_width(max_width);
+    job.break_on_newline = false;
+    let galley = p.layout_job(job);
+    p.galley(
+        Pos2::new(text_left, rect.center().y - galley.size().y / 2.0),
+        galley,
         text_color,
+    );
+
+    // Il pallino del livello di rischio è sempre visibile, non solo sulla voce attiva.
+    p.circle_filled(dot_center, DOT_RADIUS, risk.color());
+    p.circle_stroke(
+        dot_center,
+        DOT_RADIUS,
+        Stroke::new(1.0_f32, alpha(if dark_mode { Color32::WHITE } else { Color32::BLACK }, 90)),
     );
     resp.clicked()
 }
 
 pub fn tile(ui: &mut egui::Ui, page: Page, title: &str, sub: &str) -> bool {
-    let (rect, resp) = ui.allocate_exact_size(vec2(290.0, 98.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(290.0, 104.0), Sense::click());
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     let p = ui.painter();
     let dark_mode = ui.visuals().dark_mode;
+    let tint = page_color(page);
     let fill = if resp.hovered() {
-        if dark_mode { Color32::from_rgb(47, 58, 77) } else { Color32::from_rgb(230, 235, 242) }
+        if dark_mode { Color32::from_rgb(45, 57, 74) } else { Color32::from_rgb(230, 238, 246) }
     } else {
         card_bg(ui.ctx())
     };
-    p.rect_filled(rect, 12.0, fill);
-    let stroke_color = if dark_mode { Color32::from_white_alpha(16) } else { Color32::from_black_alpha(20) };
-    p.rect_stroke(rect, 12.0, Stroke::new(1.0_f32, stroke_color));
-    page_icon(p, Pos2::new(rect.left() + 50.0, rect.center().y), 60.0, page);
-    let title_color = if dark_mode { Color32::WHITE } else { Color32::from_rgb(30, 40, 50) };
+    p.rect_filled(rect, 10.0, fill);
+    let stroke_color = if resp.hovered() { alpha(tint, 150) } else { card_border(ui.ctx()) };
+    p.rect_stroke(rect, 10.0, Stroke::new(1.0_f32, stroke_color));
+    // icona vettoriale colorata (page_icon disegna già il proprio riquadro)
+    page_icon(p, Pos2::new(rect.left() + 52.0, rect.center().y), 56.0, page);
+    let title_color = text_primary();
     p.text(
-        Pos2::new(rect.left() + 96.0, rect.center().y - 13.0),
+        Pos2::new(rect.left() + 96.0, rect.center().y - 14.0),
         Align2::LEFT_CENTER,
         tr(title),
         FontId::proportional(20.0),
         title_color,
     );
     p.text(
-        Pos2::new(rect.left() + 96.0, rect.center().y + 14.0),
+        Pos2::new(rect.left() + 96.0, rect.center().y + 13.0),
         Align2::LEFT_CENTER,
         tr(sub),
-        FontId::proportional(15.0),
-        TEXT_DIM,
+        FontId::proportional(14.0),
+        text_dim(),
+    );
+    // freccia di navigazione
+    p.text(
+        Pos2::new(rect.right() - 16.0, rect.center().y),
+        Align2::CENTER_CENTER,
+        "›",
+        FontId::proportional(24.0),
+        if resp.hovered() { tint } else { text_dim() },
     );
     resp.clicked()
 }
@@ -529,17 +968,18 @@ pub fn dash_tile(ui: &mut egui::Ui, page: Page, title: &str, width: f32, height:
     let p = ui.painter();
     let dark_mode = ui.visuals().dark_mode;
 
+    let tint = page_color(page);
     let fill = if resp.hovered() {
         if dark_mode { Color32::from_rgb(48, 60, 80) } else { Color32::from_rgb(228, 234, 242) }
     } else {
         card_bg(ui.ctx())
     };
-    p.rect_filled(rect, 14.0, fill);
+    p.rect_filled(rect, 10.0, fill);
 
-    let stroke_color = if dark_mode { Color32::from_white_alpha(20) } else { Color32::from_black_alpha(24) };
-    p.rect_stroke(rect, 14.0, Stroke::new(1.0_f32, stroke_color));
+    let stroke_color = if resp.hovered() { alpha(tint, 170) } else { card_border(ui.ctx()) };
+    p.rect_stroke(rect, 10.0, Stroke::new(1.0_f32, stroke_color));
 
-    let title_color = if dark_mode { Color32::WHITE } else { Color32::from_rgb(25, 35, 45) };
+    let title_color = text_primary();
     p.text(
         Pos2::new(rect.center().x, rect.top() + 26.0),
         Align2::CENTER_CENTER,
@@ -550,10 +990,6 @@ pub fn dash_tile(ui: &mut egui::Ui, page: Page, title: &str, width: f32, height:
 
     let icon_center = Pos2::new(rect.center().x, rect.top() + height * 0.58);
     let ring_r = (height * 0.25).clamp(26.0, 40.0);
-    let ring_bg = if dark_mode { Color32::from_rgb(26, 33, 45) } else { Color32::from_rgb(235, 240, 246) };
-    p.circle_filled(icon_center, ring_r, ring_bg);
-    p.circle_stroke(icon_center, ring_r, Stroke::new(1.5_f32, stroke_color));
-
     page_icon(p, icon_center, ring_r * 1.15, page);
     resp.clicked()
 }
@@ -571,13 +1007,17 @@ pub fn cpu_dial(ui: &mut egui::Ui, frac: f32, label: &str) {
     let bg_ring = if ui.visuals().dark_mode { Color32::from_white_alpha(26) } else { Color32::from_black_alpha(22) };
     p.add(Shape::line(arc(c, r, start, start + sweep), Stroke::new(11.0_f32, bg_ring)));
     if frac > 0.005 {
-        p.add(Shape::line(
-            arc(c, r, start, start + sweep * frac),
-            Stroke::new(11.0_f32, level_color(frac)),
-        ));
+        let pts = arc(c, r, start, start + sweep * frac);
+        let col = level_color(frac);
+        p.add(Shape::line(pts.clone(), Stroke::new(16.0_f32, alpha(col, 18))));
+        let segs = pts.len().saturating_sub(1);
+        for i in 0..segs {
+            let t = i as f32 / segs.max(1) as f32;
+            p.line_segment([pts[i], pts[i + 1]], Stroke::new(11.0_f32, mix(ACCENT, col, t)));
+        }
     }
 
-    let text_col = if ui.visuals().dark_mode { Color32::WHITE } else { Color32::from_rgb(25, 35, 45) };
+    let text_col = text_primary();
     p.text(
         Pos2::new(c.x, c.y - 6.0),
         Align2::CENTER_CENTER,
@@ -590,7 +1030,7 @@ pub fn cpu_dial(ui: &mut egui::Ui, frac: f32, label: &str) {
         Align2::CENTER_CENTER,
         tr(label),
         FontId::proportional(13.0),
-        TEXT_DIM,
+        text_dim(),
     );
 }
 
@@ -613,17 +1053,24 @@ pub fn gauge(ui: &mut egui::Ui, frac: f32, title: &str, sub: &str) {
     let r = size * 0.40;
     let start = 0.75 * PI;
     let sweep = 1.5 * PI;
-    p.add(Shape::line(arc(c, r, start, start + sweep), Stroke::new(13.0_f32, Color32::from_white_alpha(28))));
+    let dark = ui.visuals().dark_mode;
+    p.add(Shape::line(arc(c, r, start, start + sweep), Stroke::new(13.0_f32, if dark { Color32::from_white_alpha(22) } else { Color32::from_black_alpha(18) })));
     if frac > 0.005 {
-        p.add(Shape::line(
-            arc(c, r, start, start + sweep * frac),
-            Stroke::new(13.0_f32, level_color(frac)),
-        ));
+        let pts = arc(c, r, start, start + sweep * frac);
+        let col = level_color(frac);
+        p.add(Shape::line(pts.clone(), Stroke::new(18.0_f32, alpha(col, 18))));
+        let segs = pts.len().saturating_sub(1);
+        for i in 0..segs {
+            let t = i as f32 / segs.max(1) as f32;
+            p.line_segment([pts[i], pts[i + 1]], Stroke::new(12.0_f32, mix(ACCENT, col, t)));
+        }
+        p.circle_filled(*pts.last().unwrap(), 5.5, col);
+        p.circle_filled(*pts.last().unwrap(), 2.5, Color32::WHITE);
     }
-    let text_col = if ui.visuals().dark_mode { Color32::WHITE } else { Color32::from_rgb(30, 40, 50) };
-    p.text(c, Align2::CENTER_CENTER, format!("{:.0}%", frac * 100.0), FontId::proportional(30.0), text_col);
+    let text_col = text_primary();
+    p.text(c, Align2::CENTER_CENTER, format!("{:.0}%", frac * 100.0), FontId::proportional(31.0), text_col);
     p.text(Pos2::new(c.x, c.y + r + 26.0), Align2::CENTER_CENTER, tr(title), FontId::proportional(18.0), text_col);
-    p.text(Pos2::new(c.x, c.y + r + 46.0), Align2::CENTER_CENTER, sub, FontId::proportional(14.0), TEXT_DIM);
+    p.text(Pos2::new(c.x, c.y + r + 46.0), Align2::CENTER_CENTER, sub, FontId::proportional(14.0), text_dim());
 }
 
 pub fn sparkline(ui: &mut egui::Ui, data: &VecDeque<f32>, color: Color32, height: f32) {
@@ -631,8 +1078,9 @@ pub fn sparkline(ui: &mut egui::Ui, data: &VecDeque<f32>, color: Color32, height
     let (rect, _) = ui.allocate_exact_size(vec2(w, height), Sense::hover());
     let p = ui.painter_at(rect);
     let dark_mode = ui.visuals().dark_mode;
-    let bg = if dark_mode { Color32::from_black_alpha(70) } else { Color32::from_black_alpha(20) };
-    p.rect_filled(rect, 6.0, bg);
+    let bg = if dark_mode { Color32::from_rgb(20, 27, 38) } else { Color32::from_rgb(236, 241, 247) };
+    p.rect_filled(rect, 10.0, bg);
+    p.rect_stroke(rect, 10.0, Stroke::new(1.0_f32, if dark_mode { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(16) }));
     let n = data.len();
     if n < 2 {
         return;
@@ -642,9 +1090,22 @@ pub fn sparkline(ui: &mut egui::Ui, data: &VecDeque<f32>, color: Color32, height
         .enumerate()
         .map(|(i, v)| {
             let x = rect.left() + rect.width() * (i + HIST_LEN - n) as f32 / (HIST_LEN - 1) as f32;
-            Pos2::new(x, rect.bottom() - 4.0 - (rect.height() - 8.0) * v.clamp(0.0, 1.0))
+            Pos2::new(x, rect.bottom() - 5.0 - (rect.height() - 12.0) * v.clamp(0.0, 1.0))
         })
         .collect();
+    // area sfumata sotto la curva
+    let base = rect.bottom() - 5.0;
+    let mut mesh = Mesh::with_texture(TextureId::Managed(0));
+    for i in 0..pts.len().saturating_sub(1) {
+        let idx = mesh.vertices.len() as u32;
+        mesh.vertices.push(Vertex { pos: pts[i], uv: WHITE_UV, color: alpha(color, 45) });
+        mesh.vertices.push(Vertex { pos: Pos2::new(pts[i].x, base), uv: WHITE_UV, color: alpha(color, 2) });
+        mesh.vertices.push(Vertex { pos: pts[i + 1], uv: WHITE_UV, color: alpha(color, 45) });
+        mesh.vertices.push(Vertex { pos: Pos2::new(pts[i + 1].x, base), uv: WHITE_UV, color: alpha(color, 2) });
+        mesh.indices.extend_from_slice(&[idx, idx + 1, idx + 2, idx + 2, idx + 1, idx + 3]);
+    }
+    p.add(Shape::mesh(mesh));
+    p.add(Shape::line(pts.clone(), Stroke::new(5.0_f32, alpha(color, 18))));
     p.add(Shape::line(pts, Stroke::new(2.5_f32, color)));
 }
 
@@ -656,8 +1117,9 @@ pub fn led(ui: &mut egui::Ui, state: Option<bool>, text: &str) {
     };
     ui.horizontal(|ui| {
         let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
-        ui.painter().circle_filled(r.center(), 9.0, col);
-        ui.label(text);
+        ui.painter().circle_filled(r.center(), 10.0, alpha(col, 45));
+        ui.painter().circle_filled(r.center(), 6.0, col);
+        ui.label(egui::RichText::new(text).strong());
     });
 }
 
@@ -685,8 +1147,8 @@ pub fn output_box_follow(ui: &mut egui::Ui, text: &str, height: f32) {
         .rounding(8.0)
         .show(ui, |ui| {
             egui::ScrollArea::both().max_height(height).auto_shrink([false, true]).stick_to_bottom(true).show(ui, |ui| {
-                let t = if text.trim().is_empty() { "(nessun output)" } else { text };
-                ui.label(egui::RichText::new(t).monospace());
+                let shown = if text.trim().is_empty() { t("(nessun output)") } else { text };
+                ui.label(egui::RichText::new(shown).monospace());
             });
         });
 }

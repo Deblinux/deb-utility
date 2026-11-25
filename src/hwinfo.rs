@@ -593,7 +593,7 @@ impl App {
         });
         if !self.ram_msg.is_empty() {
             ui.add_space(6.0);
-            ui.colored_label(ui::WARN, self.ram_msg.as_str());
+            ui.colored_label(ui::semantic_text(ui::WARN), self.ram_msg.as_str());
         }
         ui.add_space(8.0);
         if !self.ram_arr.is_empty() {
@@ -605,7 +605,7 @@ impl App {
                     ui.label(
                         egui::RichText::new(format!("{} — {}", m.slot, t("Slot libero")))
                             .size(17.0)
-                            .color(ui::TEXT_DIM),
+                            .color(ui::text_dim()),
                     );
                     return;
                 }

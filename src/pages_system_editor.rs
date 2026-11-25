@@ -44,7 +44,7 @@ impl SystemFileEditor {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let tmp_path = format!("/tmp/debclean-edit-{}-{}", std::process::id(), stamp);
+        let tmp_path = format!("/tmp/debutility-edit-{}-{}", std::process::id(), stamp);
         fs::write(&tmp_path, &self.content).map_err(|e| format!("Errore scrittura file temporaneo: {}", e))?;
 
         // 1. Validazione sintattica specifica per fstab, PRIMA di toccare qualsiasi file
@@ -68,10 +68,10 @@ impl SystemFileEditor {
         //    non lascia mai un fstab troncato. Permessi e proprietario originali vengono mantenuti.
         let script = r#"set -e
 [ -e "$1" ] && cp -p -- "$1" "$1.bak"
-cat -- "$2" > "$1.debclean-new"
-chmod --reference="$1" "$1.debclean-new" 2>/dev/null || chmod 644 "$1.debclean-new"
-chown --reference="$1" "$1.debclean-new" 2>/dev/null || true
-mv -f -- "$1.debclean-new" "$1""#;
+cat -- "$2" > "$1.debutility-new"
+chmod --reference="$1" "$1.debutility-new" 2>/dev/null || chmod 644 "$1.debutility-new"
+chown --reference="$1" "$1.debutility-new" 2>/dev/null || true
+mv -f -- "$1.debutility-new" "$1""#;
 
         let mut cmd = if crate::util::is_root() {
             std::process::Command::new("sh")

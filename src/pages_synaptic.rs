@@ -79,7 +79,7 @@ impl App {
 
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(t("Mostra:")).color(ui::TEXT_DIM));
+                ui.label(egui::RichText::new(t("Mostra:")).color(ui::text_dim()));
                 ui.selectable_value(&mut self.synaptic_filter_mode, 0, t("Tutti"));
                 ui.selectable_value(&mut self.synaptic_filter_mode, 1, t("Solo installati"));
                 ui.selectable_value(&mut self.synaptic_filter_mode, 2, t("Non installati"));
@@ -119,7 +119,7 @@ impl App {
                         .collect();
 
                     if filtered.is_empty() {
-                        ui.label(egui::RichText::new(t("Nessun pacchetto trovato con i filtri attuali.")).color(ui::TEXT_DIM));
+                        ui.label(egui::RichText::new(t("Nessun pacchetto trovato con i filtri attuali.")).color(ui::text_dim()));
                     }
 
                     for (idx, pkg) in filtered {
@@ -147,19 +147,12 @@ impl App {
                             let short_desc: String = pkg.desc.chars().take(52).collect();
                             ui.add_sized(
                                 [340.0, 24.0],
-                                egui::Label::new(egui::RichText::new(short_desc).color(ui::TEXT_DIM)),
+                                egui::Label::new(egui::RichText::new(short_desc).color(ui::text_dim())),
                             );
 
                             // Pulsanti Installa / Rimuovi / Purga direttamente sulla riga
                             if !pkg.installed {
-                                if ui
-                                    .add_enabled(
-                                        !self.busy,
-                                        egui::Button::new(egui::RichText::new(t("Installa")).color(egui::Color32::WHITE))
-                                            .fill(ui::GOOD),
-                                    )
-                                    .clicked()
-                                {
+                                if ui::primary_button(ui, t("Installa"), !self.busy).clicked() {
                                     action_cmd = Some((
                                         format!("Vuoi installare il pacchetto '{}'?", pkg.name),
                                         format!("DEBIAN_FRONTEND=noninteractive apt-get install -y {}", pkg.name),
@@ -215,7 +208,7 @@ impl App {
             ui.horizontal(|ui| {
                 if let Some(idx) = self.synaptic_selected {
                     if let Some(p) = self.synaptic_pkgs.get(idx) {
-                        ui.label(egui::RichText::new(format!("Dettagli pacchetto: {}", p.name)).strong().color(ui::ACCENT));
+                        ui.label(egui::RichText::new(format!("Dettagli pacchetto: {}", p.name)).strong().color(ui::accent_text()));
                     }
                 } else {
                     ui.label(egui::RichText::new(t("Dettagli pacchetto (clicca un nome sopra) e Log APT")).strong());

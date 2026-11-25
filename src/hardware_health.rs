@@ -259,7 +259,7 @@ impl App {
             egui::RichText::new(t("STATO DI DEGRADO BATTERIA"))
                 .size(15.0)
                 .strong()
-                .color(ui::TEXT_DIM),
+                .color(ui::text_dim()),
         );
         ui.add_space(4.0);
 
@@ -334,7 +334,7 @@ impl App {
             egui::RichText::new(t("ANALISI PREDITTIVA SSD E NVME"))
                 .size(15.0)
                 .strong()
-                .color(ui::TEXT_DIM),
+                .color(ui::text_dim()),
         );
         ui.add_space(4.0);
 
@@ -353,7 +353,7 @@ impl App {
                                 .strong()
                                 .size(18.0),
                         );
-                        ui.label(egui::RichText::new(format!("[{}]", tag)).color(ui::TEXT_DIM));
+                        ui.label(egui::RichText::new(format!("[{}]", tag)).color(ui::text_dim()));
                     });
                     ui.add_space(6.0);
 

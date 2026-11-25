@@ -72,6 +72,7 @@ pub fn scan_surgical_residuals(query: &str) -> Vec<ResidualArtifact> {
 impl App {
     pub(crate) fn ui_app_lifecycle(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
         ui::title(ui, t("Disinstallazione Chirurgica & Sandbox"));
+        self.snapshot_toggle(ui);
 
         ui::card(ui, |ui| {
             ui.label(
@@ -102,7 +103,7 @@ impl App {
                 egui::RichText::new(t("Elementi e residui invisibili rilevati:"))
                     .strong()
                     .size(16.0)
-                    .color(ui::ACCENT),
+                    .color(ui::accent_text()),
             );
             ui.add_space(6.0);
 
@@ -113,7 +114,7 @@ impl App {
                     for item in &mut self.app_lifecycle_residuals {
                         ui.horizontal(|ui| {
                             ui.checkbox(&mut item.selected, "");
-                            ui.label(egui::RichText::new(&item.artifact_type).strong().color(ui::WARN));
+                            ui.label(egui::RichText::new(&item.artifact_type).strong().color(ui::semantic_text(ui::WARN)));
                             ui.label(item.path.to_string_lossy().as_ref());
                         });
                         ui.add_space(4.0);
@@ -126,7 +127,7 @@ impl App {
                     .add_enabled(
                         !self.busy && n_sel > 0,
                         egui::Button::new(
-                            egui::RichText::new(t("Esegui Bonifica Chirurgica Selezionati")).color(ui::BAD),
+                            egui::RichText::new(t("Esegui Bonifica Chirurgica Selezionati")).color(ui::semantic_text(ui::BAD)),
                         ),
                     )
                     .clicked()
@@ -151,7 +152,7 @@ impl App {
                         paths_to_remove.len(),
                         paths_to_remove.join("\n")
                     );
-                    self.confirm = Some((msg, job));
+                    self.confirm_snapshot(msg, job);
                 }
                 ui.add_space(6.0);
                 ui.label(t("Dopo l'eliminazione premi di nuovo «Cerca Residui Invisibili» per aggiornare l'elenco."));

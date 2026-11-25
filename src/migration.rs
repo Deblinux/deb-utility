@@ -80,7 +80,7 @@ pub fn create_migration_kit(dest_dir: &Path) -> Vec<String> {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_else(|_| "backup".into());
 
-    let kit_name = format!("debclean_migration_kit_{ts}");
+    let kit_name = format!("debutility_migration_kit_{ts}");
     let staging_dir = std::env::temp_dir().join(&kit_name);
     let _ = fs::remove_dir_all(&staging_dir);
     if let Err(e) = fs::create_dir_all(&staging_dir) {
@@ -154,7 +154,7 @@ pub fn create_migration_kit(dest_dir: &Path) -> Vec<String> {
 set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "=== Ripristino Kit di Migrazione DebClean ==="
+echo "=== Ripristino Kit di Migrazione DebUtility ==="
 
 if [ -d "$DIR/apt_sources/sources.list.d" ]; then
     echo "-> Ripristino repository aggiuntivi (richiede sudo)..."

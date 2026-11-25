@@ -1,5 +1,5 @@
-use crate::i18n::t;
-use crate::{cleaner, ui, util, App, Chan, Msg};
+use crate::i18n::{t, tf};
+use crate::{cleaner, quarantine, ui, util, App, Chan, Msg, ProgressReporter};
 use eframe::egui;
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -10,7 +10,7 @@ use std::process::Command;
 #[derive(Clone)]
 pub struct DuplicateGroup {
     pub size: u64,
-    pub files: Vec<(PathBuf, bool)>, // (percorso, selezionato per l'eliminazione)
+    pub files: Vec<(PathBuf, bool)>, // (percorso, selezionato per la quarantena)
 }
 
 fn partial_hash(path: &Path) -> Option<[u8; 4096]> {
@@ -32,7 +32,14 @@ fn full_sha256(path: &Path) -> Option<String> {
     s.split_whitespace().next().map(|h| h.trim_start_matches('\\').to_string())
 }
 
-fn walk_dir(dir: &Path, skip_hidden: bool, min_size: u64, by_size: &mut HashMap<u64, Vec<PathBuf>>) {
+fn walk_dir(
+    dir: &Path,
+    skip_hidden: bool,
+    min_size: u64,
+    by_size: &mut HashMap<u64, Vec<PathBuf>>,
+    seen: &mut usize,
+    on_progress: &mut dyn FnMut(usize),
+) {
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return,
@@ -52,8 +59,12 @@ fn walk_dir(dir: &Path, skip_hidden: bool, min_size: u64, by_size: &mut HashMap<
             continue;
         }
         if meta.is_dir() {
-            walk_dir(&path, skip_hidden, min_size, by_size);
+            walk_dir(&path, skip_hidden, min_size, by_size, seen, on_progress);
         } else if meta.is_file() {
+            *seen += 1;
+            if *seen % 50 == 0 {
+                on_progress(*seen);
+            }
             let len = meta.len();
             if len >= min_size {
                 by_size.entry(len).or_default().push(path);
@@ -63,26 +74,54 @@ fn walk_dir(dir: &Path, skip_hidden: bool, min_size: u64, by_size: &mut HashMap<
 }
 
 pub fn scan_duplicates(root: &str, min_kb: u64, skip_hidden: bool) -> Vec<DuplicateGroup> {
-    let mut by_size: HashMap<u64, Vec<PathBuf>> = HashMap::new();
-    walk_dir(Path::new(root), skip_hidden, min_kb * 1024, &mut by_size);
+    scan_duplicates_with(root, min_kb, skip_hidden, |_, _, _| {})
+}
 
+/// Come `scan_duplicates`, con callback `(fase, completati, totale)`.
+/// `totale == 0` significa che il numero di elementi non è noto in anticipo.
+pub fn scan_duplicates_with<F: FnMut(&str, usize, usize)>(
+    root: &str,
+    min_kb: u64,
+    skip_hidden: bool,
+    mut on_progress: F,
+) -> Vec<DuplicateGroup> {
+    let mut by_size: HashMap<u64, Vec<PathBuf>> = HashMap::new();
+    let mut seen = 0usize;
+    walk_dir(
+        Path::new(root),
+        skip_hidden,
+        min_kb * 1024,
+        &mut by_size,
+        &mut seen,
+        &mut |n| on_progress("Individuazione file", n, 0),
+    );
+    on_progress("Individuazione file", seen, seen.max(1));
+
+    let candidates: Vec<(u64, Vec<PathBuf>)> = by_size
+        .into_iter()
+        .filter(|(_, paths)| paths.len() >= 2)
+        .collect();
+    let total_head: usize = candidates.iter().map(|(_, p)| p.len()).sum();
+    let mut done_head = 0usize;
+    let total_hash: usize = total_head;
+    let mut done_hash = 0usize;
     let mut groups = Vec::new();
 
-    for (size, paths) in by_size {
-        if paths.len() < 2 {
-            continue;
-        }
+    for (size, paths) in candidates {
         // Fase 2: filtro rapido sui primi 4 KB
         let mut by_head: HashMap<[u8; 4096], Vec<PathBuf>> = HashMap::new();
         for p in paths {
             if let Some(head) = partial_hash(&p) {
                 by_head.entry(head).or_default().push(p);
             }
+            done_head += 1;
+            on_progress("Confronto impronte (filtro rapido)", done_head, total_head);
         }
 
         // Fase 3: hash completo SHA-256 solo sui candidati reali
         for (_, candidates) in by_head {
             if candidates.len() < 2 {
+                done_hash += candidates.len();
                 continue;
             }
             let mut by_hash: HashMap<String, Vec<PathBuf>> = HashMap::new();
@@ -90,6 +129,8 @@ pub fn scan_duplicates(root: &str, min_kb: u64, skip_hidden: bool) -> Vec<Duplic
                 if let Some(h) = full_sha256(&p) {
                     by_hash.entry(h).or_default().push(p);
                 }
+                done_hash += 1;
+                on_progress("Verifica SHA-256", done_hash, total_hash);
             }
 
             for (_, mut dupes) in by_hash {
@@ -147,10 +188,18 @@ impl App {
                     let min_kb = self.dup_min_kb;
                     let skip = self.dup_skip_hidden;
                     self.spawn(ctx, move |ch: &Chan| {
+                        let mut prog = ProgressReporter::start(
+                            &ch,
+                            "duplicates",
+                            t("Ricerca file duplicati in corso..."),
+                        );
                         ch.send(Msg::Log(format!("▶ Scansione duplicati in {dir}...")));
-                        let found = scan_duplicates(&dir, min_kb, skip);
+                        let found = scan_duplicates_with(&dir, min_kb, skip, |phase, cur, total| {
+                            prog.step(cur, total, phase)
+                        });
                         ch.send(Msg::Log(format!("✔ Trovati {} gruppi di file duplicati.", found.len())));
                         ch.send(Msg::Duplicates(found));
+                        prog.finish(t("Ricerca duplicati completata"));
                     });
                 }
                 if self.busy {
@@ -191,19 +240,19 @@ impl App {
                 ui.label(
                     egui::RichText::new(format!(
                         "{}: {} file ({})",
-                        t("Selezionati per l'eliminazione"),
+                        t("Selezionati per la quarantena"),
                         selected_count,
                         cleaner::fmt_bytes(selected_bytes)
                     ))
                     .strong()
-                    .color(ui::ACCENT),
+                    .color(ui::accent_text()),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .add_enabled(
                             !self.busy && selected_count > 0,
                             egui::Button::new(
-                                egui::RichText::new(t("Elimina selezionati"))
+                                egui::RichText::new(t("Sposta selezionati in quarantena"))
                                     .strong()
                                     .color(egui::Color32::WHITE),
                             )
@@ -221,26 +270,34 @@ impl App {
                                 }
                             }
                         }
-                        let msg = format!(
-                            "{} {} {} ({})?\n{}",
-                            t("Vuoi eliminare definitivamente"),
-                            to_delete.len(),
-                            t("file duplicati"),
-                            cleaner::fmt_bytes(selected_bytes),
-                            t("L'operazione non è reversibile.")
+                        let msg = tf(
+                            "Spostare {} file duplicati ({}) in quarantena? Potrai ripristinarli entro {} giorni.",
+                            &[&to_delete.len(), &cleaner::fmt_bytes(selected_bytes), &quarantine::RETENTION_DAYS],
                         );
                         let dir = self.dup_dir.clone();
                         let min_kb = self.dup_min_kb;
                         let skip = self.dup_skip_hidden;
                         let job = Box::new(move |ch: &Chan| {
-                            let mut deleted = 0usize;
-                            for p in to_delete {
-                                if fs::remove_file(&p).is_ok() {
-                                    deleted += 1;
+                            let mut prog = ProgressReporter::start(
+                                &ch,
+                                "quarantine",
+                                t("Spostamento duplicati in quarantena in corso..."),
+                            );
+                            match quarantine::quarantine_files(&to_delete, "File duplicati", false) {
+                                Ok((moved, failed)) => {
+                                    ch.send(Msg::QuarantineMessage(
+                                        tf("Spostati {} file in quarantena, {} non spostati.", &[&moved, &failed]),
+                                        failed > 0,
+                                    ));
                                 }
+                                Err(e) => ch.send(Msg::QuarantineMessage(e, true)),
                             }
-                            ch.send(Msg::Log(format!("✔ Eliminati {deleted} file duplicati.")));
-                            ch.send(Msg::Duplicates(scan_duplicates(&dir, min_kb, skip)));
+                            ch.send(Msg::QuarantineItems(quarantine::load().unwrap_or_default()));
+                            let found = scan_duplicates_with(&dir, min_kb, skip, |phase, cur, tot| {
+                                prog.step(cur, tot, phase)
+                            });
+                            ch.send(Msg::Duplicates(found));
+                            prog.finish(t("Spostamento completato"));
                         });
                         self.confirm = Some((msg, job));
                     }
@@ -274,7 +331,7 @@ impl App {
                                 g.files.len()
                             ))
                             .strong()
-                            .color(ui::ACCENT),
+                            .color(ui::accent_text()),
                         );
                     });
                     ui.add_space(4.0);

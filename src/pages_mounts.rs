@@ -173,13 +173,13 @@ impl App {
                         ui::led(ui, Some(item.mounted), "");
                         ui.label(egui::RichText::new(&item.device).strong().size(17.0));
                         if !item.fstype.is_empty() {
-                            ui.label(egui::RichText::new(format!("[{}]", item.fstype)).color(ui::TEXT_DIM));
+                            ui.label(egui::RichText::new(format!("[{}]", item.fstype)).color(ui::text_dim()));
                         }
                         if !item.size.is_empty() {
-                            ui.label(egui::RichText::new(&item.size).color(ui::ACCENT));
+                            ui.label(egui::RichText::new(&item.size).color(ui::accent_text()));
                         }
                         if item.removable {
-                            ui.colored_label(ui::WARN, t("Rimob./USB"));
+                            ui.colored_label(ui::semantic_text(ui::WARN), t("Rimob./USB"));
                         }
 let is_protected =
                             item.mountpoint == "/" || item.mountpoint == "[SWAP]" || item.fstype == "swap";
@@ -187,7 +187,7 @@ let is_protected =
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if item.mounted {
                                 if is_protected {
-                                    ui.label(egui::RichText::new(t("Sistema")).color(ui::TEXT_DIM));
+                                    ui.label(egui::RichText::new(t("Sistema")).color(ui::text_dim()));
                                 }
                                 if ui
                                     .add_enabled(
@@ -208,15 +208,9 @@ let is_protected =
                                         ch.send(Msg::Mounts(read_mounts()));
                                     });
                                 }
-                            } else if ui
-                                .add_enabled(
-                                    !self.busy,
-                                    egui::Button::new(t("📌 Monta")).fill(ui::GOOD),
-                                )
-                                .clicked()
-                            {
+                            } else if ui::primary_button(ui, t("📌 Monta"), !self.busy).clicked() {
                                 let script = format!(
-                                    "if command -v udisksctl >/dev/null 2>&1; then udisksctl mount -b {dev_q} --no-user-interaction; else mkdir -p /mnt/debclean_mount && mount {dev_q} /mnt/debclean_mount; fi"
+                                    "if command -v udisksctl >/dev/null 2>&1; then udisksctl mount -b {dev_q} --no-user-interaction; else mkdir -p /mnt/debutility_mount && mount {dev_q} /mnt/debutility_mount; fi"
                                 );
                                 self.spawn(ctx, move |ch| {
                                     let job = crate::cmd_job("mounts", script, true);
@@ -232,7 +226,7 @@ let is_protected =
                     } else {
                         t("Non montato").to_string()
                     };
-                    ui.label(egui::RichText::new(mp_text).size(14.0).color(ui::TEXT_DIM));
+                    ui.label(egui::RichText::new(mp_text).size(14.0).color(ui::text_dim()));
                 });
                 ui.add_space(4.0);
             }
@@ -317,7 +311,7 @@ let is_protected =
             ui.label(
                 egui::RichText::new(format!("{}: {local_mp}", t("Punto di montaggio")))
                     .size(13.5)
-                    .color(ui::TEXT_DIM),
+                    .color(ui::text_dim()),
             );
 
             let host_clean = self.mounts_state.host.trim().to_string();

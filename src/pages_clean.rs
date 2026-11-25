@@ -1,15 +1,18 @@
 use crate::i18n::{t, tr};
-use crate::{ui, util, App, Job, Msg};
+use crate::{ui, util, App, Job, Msg, ProgressReporter};
 use eframe::egui;
 use std::fs;
 use std::path::Path;
 use crate::cleaner;
 
 /// Salva (una sola volta) governor e profilo energetico originali, per poterli ripristinare.
-pub const POWER_SAVE_ORIG: &str = "[ -f /var/lib/debclean/power_orig ] || { mkdir -p /var/lib/debclean; \
-[ -r /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor ] && cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor > /var/lib/debclean/power_orig 2>/dev/null || :; \
-[ -r /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference ] && cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference > /var/lib/debclean/epp_orig 2>/dev/null || :; \
-command -v powerprofilesctl >/dev/null 2>&1 && powerprofilesctl get > /var/lib/debclean/power_profile_orig 2>/dev/null || :; }; ";
+pub const POWER_SAVE_ORIG: &str = "[ -f /var/lib/debutility/power_orig ] || { mkdir -p /var/lib/debutility; \
+for f in power_orig epp_orig power_profile_orig; do \
+  if [ ! -f \"/var/lib/debutility/$f\" ] && [ -f \"/var/lib/debclean/$f\" ]; then cp \"/var/lib/debclean/$f\" \"/var/lib/debutility/$f\" 2>/dev/null || true; fi; \
+done; \
+[ -r /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor ] && cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor > /var/lib/debutility/power_orig 2>/dev/null || :; \
+[ -r /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference ] && cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference > /var/lib/debutility/epp_orig 2>/dev/null || :; \
+command -v powerprofilesctl >/dev/null 2>&1 && powerprofilesctl get > /var/lib/debutility/power_profile_orig 2>/dev/null || :; }; ";
 ///////-------------------------
 const SYSFS_GOV_BALANCED: &str = "avail=/sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors; \
 g=\"\"; \
@@ -145,56 +148,83 @@ fn find_list(script: &str, default_sel: bool) -> Vec<Found> {
         .collect()
 }
 
-fn scan_dirs(hidden: bool) -> Vec<Found> {
+pub(crate) fn scan_dirs(hidden: bool) -> Vec<Found> {
     let excl = if hidden { "" } else { "-not -path '*/.*'" };
     find_list(
-        &format!("find \"$HOME\" -xdev -mindepth 1 -type d -empty {excl} 2>/dev/null | head -3000"),
+        &format!(
+            "find {} -xdev -mindepth 1 -type d -empty {excl} 2>/dev/null | head -3000",
+            util::shq(&util::home())
+        ),
         true,
     )
 }
 
-fn scan_files(hidden: bool) -> Vec<Found> {
+pub(crate) fn scan_files(hidden: bool) -> Vec<Found> {
     let excl = if hidden { "" } else { "-not -path '*/.*'" };
     find_list(
-        &format!("find \"$HOME\" -xdev -type f -size 0 {excl} -not -name '__init__.py' 2>/dev/null | head -3000"),
+        &format!(
+            "find {} -xdev -type f -size 0 {excl} -not -name '__init__.py' 2>/dev/null | head -3000",
+            util::shq(&util::home())
+        ),
         false,
     )
 }
 
+/// Rimozione condivisa tra la GUI e la CLI: valida i percorsi, elimina solo
+/// cartelle vuote o file da 0 byte e restituisce (rimossi, non rimossi).
+pub(crate) fn delete_empty_items<F: FnMut(usize, usize, &str)>(
+    dirs: bool,
+    items: Vec<String>,
+    mut on_progress: F,
+) -> (usize, usize) {
+    let total = items.len();
+    let home = util::home();
+    let mut list = items;
+    if dirs {
+        // prima le cartelle più profonde
+        list.sort_by_key(|p| std::cmp::Reverse(p.len()));
+    }
+    let (mut ok, mut err) = (0, 0);
+    for p in &list {
+        if !p.starts_with(&home) || p == &home {
+            err += 1;
+            continue;
+        }
+        let path = Path::new(p);
+        let res = if dirs {
+            fs::remove_dir(path)
+        } else {
+            match path.symlink_metadata() {
+                Ok(m) if m.is_file() && m.len() == 0 => fs::remove_file(path),
+                _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "non più vuoto")),
+            }
+        };
+        match res {
+            Ok(_) => ok += 1,
+            Err(_) => err += 1,
+        }
+        on_progress(ok + err, total, p.as_str());
+    }
+    on_progress(list.len(), total, &format!("Eliminati {ok} elementi"));
+    (ok, err)
+}
+
 fn delete_job(dirs: bool, hidden: bool, items: Vec<String>) -> Job {
     Box::new(move |ch| {
-        let home = util::home();
-        let mut list = items;
-        if dirs {
-            // prima le cartelle più profonde
-            list.sort_by_key(|p| std::cmp::Reverse(p.len()));
-        }
-        let (mut ok, mut err) = (0, 0);
-        for p in &list {
-            if !p.starts_with(&home) || p == &home {
-                err += 1;
-                continue;
-            }
-            let path = Path::new(p);
-            let res = if dirs {
-                fs::remove_dir(path)
-            } else {
-                match path.symlink_metadata() {
-                    Ok(m) if m.is_file() && m.len() == 0 => fs::remove_file(path),
-                    _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "non più vuoto")),
-                }
-            };
-            match res {
-                Ok(_) => ok += 1,
-                Err(_) => err += 1,
-            }
-        }
+        let mut prog = ProgressReporter::start(
+            &ch,
+            "adv_clean",
+            t("Eliminazione elementi selezionati in corso..."),
+        );
+        let (ok, err) = delete_empty_items(dirs, items, |cur, total, p| prog.step(cur, total, p));
         ch.send(Msg::Log(format!("✔ Eliminati {ok} elementi ({err} non rimossi)")));
+        prog.status(t("Nuova scansione in corso..."));
         if dirs {
             ch.send(Msg::AdvDirs(scan_dirs(hidden)));
         } else {
             ch.send(Msg::AdvFiles(scan_files(hidden)));
         }
+        prog.finish(t("Eliminazione completata"));
     })
 }
 
@@ -213,6 +243,7 @@ impl App {
                 "Log sistema",
             ],
         );
+        self.snapshot_toggle(ui);
         match self.sub {
             0 => self.clean_basic(ui, ctx),
             1 => self.clean_advanced(ui, ctx),
@@ -247,10 +278,17 @@ impl App {
         ui.horizontal(|ui| {
             if ui.add_enabled(!self.busy, egui::Button::new(t("Ottimizza database SQLite browser"))).clicked() {
                 self.spawn(ctx, |ch| {
+                    let mut prog = ProgressReporter::start(
+                        &ch,
+                        "adv_clean",
+                        t("Ottimizzazione database browser in corso..."),
+                    );
                     ch.send(Msg::Log("▶ Avvio ottimizzazione database SQLite dei browser...".into()));
                     for line in cleaner::optimize_browser_databases() {
+                        prog.status(line.clone());
                         ch.send(Msg::Log(line));
                     }
+                    prog.finish(t("Ottimizzazione completata"));
                 });
             }
             if self.busy {
@@ -278,12 +316,18 @@ impl App {
             ui.label(egui::RichText::new(t(title)).strong().size(20.0));
             ui.label(t(desc));
             if !warn.is_empty() {
-                ui.colored_label(ui::WARN, t(warn));
+                ui.colored_label(ui::semantic_text(ui::WARN), t(warn));
             }
         });
         ui.horizontal(|ui| {
             if ui.add_enabled(!self.busy, egui::Button::new(t("Cerca"))).clicked() {
                 self.spawn(ctx, move |ch| {
+                    let mut prog = ProgressReporter::start(
+                        &ch,
+                        "adv_clean",
+                        t("Ricerca di file e cartelle vuote in corso..."),
+                    );
+                    prog.status(if dirs { t("Ricerca di cartelle vuote...") } else { t("Ricerca di file vuoti...") });
                     let mut l = if dirs { scan_dirs(hidden) } else { scan_files(hidden) };
                     if dirs {
                         let paths: std::collections::HashSet<String> =
@@ -300,6 +344,7 @@ impl App {
                         });
                     }
                     ch.send(Msg::Log(format!("✔ Trovati {} elementi", l.len())));
+                    prog.finish(t("Ricerca completata"));
                     ch.send(if dirs { Msg::AdvDirs(l) } else { Msg::AdvFiles(l) });
                 });
             }
@@ -350,7 +395,7 @@ impl App {
                 txt.push_str(&format!("… +{}\n", n - 12));
             }
             txt.push_str(&format!("\n{}", t("Confermi l'eliminazione?")));
-            self.confirm = Some((txt, delete_job(dirs, hidden, selected)));
+            self.confirm_snapshot(txt, delete_job(dirs, hidden, selected));
         }
     }
 
@@ -362,6 +407,11 @@ fn rc_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             if ui.add_enabled(!self.busy, egui::Button::new(t("🔍 Cerca residui rc"))).clicked() {
                 self.spawn(ctx, move |ch| {
+                    let prog = ProgressReporter::start(
+                        &ch,
+                        "adv_clean",
+                        t("Ricerca pacchetti residui in corso..."),
+                    );
                     let (_, output) = util::run_shell("dpkg -l | awk '/^rc/ {print $2}'", false);
                     let list: Vec<(String, bool)> = output.lines()
                         .map(|s| s.trim().to_string())
@@ -369,6 +419,7 @@ fn rc_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .map(|s| (s, true))
                         .collect();
                     ch.send(Msg::Log(format!("✔ Trovati {} pacchetti rc", list.len())));
+                    prog.finish(t("Ricerca completata"));
                     ch.send(Msg::RcPkgs(list));
                 });
             }
@@ -406,19 +457,26 @@ fn rc_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 let script = format!("apt-get purge -y {joined} && echo 'Pulizia pacchetti rc completata'");
                 let count_str = count.to_string();
                 let job: Job = Box::new(move |ch| {
+                    let mut prog = ProgressReporter::start(
+                        &ch,
+                        "adv_clean",
+                        t("Purgatura pacchetti residui in corso..."),
+                    );
                     ch.send(Msg::Log(format!("▶ Purgatura di {} pacchetti rc...", pkgs.len())));
                     let (ok, out) = util::run_shell(&script, true);
                     let mark = if ok { "✔" } else { "✘" };
                     ch.send(Msg::Log(format!("{mark} {}", util::tail(out.trim(), 3).replace('\n', " | "))));
+                    prog.status(t("Aggiornamento elenco residui..."));
                     let (_, output) = util::run_shell("dpkg -l | awk '/^rc/ {print $2}'", false);
                     let list: Vec<(String, bool)> = output.lines()
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty())
                         .map(|s| (s, true))
                         .collect();
+                    prog.finish(t("Purgatura completata"));
                     ch.send(Msg::RcPkgs(list));
                 });
-                self.confirm = Some((format!("Eliminare definitivamente i file di configurazione di {} pacchetti?", count_str), job));
+                self.confirm_snapshot(format!("Eliminare definitivamente i file di configurazione di {} pacchetti?", count_str), job);
             }
         }
     }
@@ -431,6 +489,11 @@ fn flatpak_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             if ui.add_enabled(!self.busy, egui::Button::new(t("🔍 Cerca runtime Flatpak inutilizzati"))).clicked() {
                 self.spawn(ctx, move |ch| {
+                    let prog = ProgressReporter::start(
+                        &ch,
+                        "adv_clean",
+                        t("Ricerca runtime Flatpak inutilizzati in corso..."),
+                    );
                     let (_, output) = util::run_shell("flatpak --version >/dev/null 2>&1 && flatpak uninstall --unused --assumeno 2>/dev/null || echo ''", false);
                     let list: Vec<(String, bool)> = output.lines()
                         .map(|s| s.trim().to_string())
@@ -438,6 +501,7 @@ fn flatpak_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .map(|s| (s, true))
                         .collect();
                     ch.send(Msg::Log(format!("✔ Trovati {} elementi Flatpak inutilizzati", list.len())));
+                    prog.finish(t("Ricerca completata"));
                     ch.send(Msg::FlatpakUnused(list));
                 });
             }
@@ -471,20 +535,26 @@ fn flatpak_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 let script = format!("flatpak uninstall -y {joined} && echo 'Pulizia Flatpak completata'");
                 let count_str = count.to_string();
                 let job: Job = Box::new(move |ch| {
+                    let mut prog = ProgressReporter::start(
+                        &ch,
+                        "adv_clean",
+                        t("Rimozione runtime Flatpak in corso..."),
+                    );
                     ch.send(Msg::Log(format!("▶ Rimozione di {} elementi Flatpak...", pkgs.len())));
                     let (ok, out) = util::run_shell(&script, true);
                     let mark = if ok { "✔" } else { "✘" };
                     ch.send(Msg::Log(format!("{mark} {}", util::tail(out.trim(), 3).replace('\n', " | "))));
-                    
+                    prog.status(t("Aggiornamento elenco runtime inutilizzati..."));
                     let (_, output) = util::run_shell("flatpak uninstall --unused --assumeno 2>/dev/null || echo ''", false);
                     let list: Vec<(String, bool)> = output.lines()
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty() && (s.contains('/') || s.starts_with("org.") || s.starts_with("com.")))
                         .map(|s| (s, true))
                         .collect();
+                    prog.finish(t("Rimozione completata"));
                     ch.send(Msg::FlatpakUnused(list));
                 });
-                self.confirm = Some((format!("Disinstallare permanentemente questi {} elementi Flatpak?", count_str), job));
+                self.confirm_snapshot(format!("Disinstallare permanentemente questi {} elementi Flatpak?", count_str), job);
             }
         }
     }
@@ -493,18 +563,28 @@ fn orphan_configs_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui::card(ui, |ui| {
             ui.label(egui::RichText::new(t("Configurazioni utente orfane")).strong().size(20.0));
             ui.label(t("Cartelle di configurazione in ~/.config appartenenti a programmi che non sono più installati sul computer."));
-            ui.colored_label(ui::WARN, t("Attenzione: eliminare una cartella in ~/.config può far perdere impostazioni o preferiti dell'applicazione."));
+            ui.colored_label(ui::semantic_text(ui::WARN), t("Attenzione: eliminare una cartella in ~/.config può far perdere impostazioni o preferiti dell'applicazione."));
         });
         
         ui.horizontal(|ui| {
             if ui.add_enabled(!self.busy, egui::Button::new(t("🔍 Cerca configurazioni orfane"))).clicked() {
                 self.spawn(ctx, move |ch| {
+                    let mut prog = ProgressReporter::start(
+                        &ch,
+                        "adv_clean",
+                        t("Ricerca configurazioni orfane in corso..."),
+                    );
                     let home = util::home();
                     let config_dir = format!("{home}/.config");
                     let mut found = Vec::new();
+                    let mut checked = 0usize;
                     
                     if let Ok(entries) = std::fs::read_dir(config_dir) {
-                        for entry in entries.flatten() {
+                        let entries: Vec<_> = entries.flatten().collect();
+                        let total = entries.len();
+                        for entry in entries {
+                            checked += 1;
+                            prog.step(checked, total, format!("Verifica di {}", entry.file_name().to_string_lossy()));
                             if let Ok(name) = entry.file_name().into_string() {
                                 let path = entry.path();
                                 if path.is_dir() {
@@ -521,6 +601,7 @@ fn orphan_configs_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                         }
                     }
                     let _ = ch.send(Msg::Log(format!("✔ Trovate {} cartelle di configurazione orfane", found.len())));
+                    prog.finish(t("Ricerca completata"));
                     let _ = ch.send(Msg::OrphanConfigs(found));
                 });
             }
@@ -561,7 +642,7 @@ fn orphan_configs_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                     let _ = ch.send(Msg::Log(format!("✔ Eliminate {ok_count} cartelle di configurazione orfane")));
                     let _ = ch.send(Msg::OrphanConfigs(Vec::new()));
                 });
-                self.confirm = Some((format!("Eliminare definitivamente le cartelle di configurazione di questi {} elementi?", count_str), job));
+                self.confirm_snapshot(format!("Eliminare definitivamente le cartelle di configurazione di questi {} elementi?", count_str), job);
             }
         }
     }
@@ -580,7 +661,7 @@ fn orphan_configs_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                     ui.label(
                         egui::RichText::new(t("Questo computer non ha una batteria (è un PC fisso). Il risparmio energetico per la batteria è disponibile solo sui notebook."))
                             .size(18.0)
-                            .color(ui::WARN),
+                            .color(ui::semantic_text(ui::WARN)),
                     );
                 });
                 return;
@@ -662,25 +743,27 @@ fn orphan_configs_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
             ),
             (
                 "Origine",
-                "Ripristina le impostazioni che il computer aveva prima di usare DebClean.",
+                "Ripristina le impostazioni che il computer aveva prima di usare DebUtility.",
 format!(
-                    "if [ -f /var/lib/debclean/power_orig ] || [ -s /var/lib/debclean/power_profile_orig ] || [ -s /var/lib/debclean/epp_orig ]; then \
-                     if [ -s /var/lib/debclean/power_profile_orig ] && command -v powerprofilesctl >/dev/null 2>&1; then \
-                       powerprofilesctl set \"$(cat /var/lib/debclean/power_profile_orig)\" 2>/dev/null || true; \
-                     fi; \
-                     if [ -s /var/lib/debclean/power_orig ]; then \
-                       orig_gov=\"$(cat /var/lib/debclean/power_orig)\"; \
-                       for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do \
-                         [ -e \"$f\" ] && [ -w \"$f\" ] && {{ printf '%s\\n' \"$orig_gov\" > \"$f\" 2>/dev/null || true; }}; \
-                       done; \
-                     fi; \
-                     if [ -s /var/lib/debclean/epp_orig ]; then \
-                       orig_epp=\"$(cat /var/lib/debclean/epp_orig)\"; \
-                       for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do \
-                         [ -e \"$f\" ] && [ -w \"$f\" ] && {{ printf '%s\\n' \"$orig_epp\" > \"$f\" 2>/dev/null || true; }}; \
-                       done; \
-                     fi; \
-                     echo 'OK'; \
+                    "ORIG_DIR=/var/lib/debutility; \
+                     if [ ! -f \"$ORIG_DIR/power_orig\" ] && [ ! -s \"$ORIG_DIR/power_profile_orig\" ] && [ ! -s \"$ORIG_DIR/epp_orig\" ] && [ -d /var/lib/debclean ]; then ORIG_DIR=/var/lib/debclean; fi; \
+                     if [ -f \"$ORIG_DIR/power_orig\" ] || [ -s \"$ORIG_DIR/power_profile_orig\" ] || [ -s \"$ORIG_DIR/epp_orig\" ]; then \
+                       if [ -s \"$ORIG_DIR/power_profile_orig\" ] && command -v powerprofilesctl >/dev/null 2>&1; then \
+                         powerprofilesctl set \"$(cat \"$ORIG_DIR/power_profile_orig\")\" 2>/dev/null || true; \
+                       fi; \
+                       if [ -s \"$ORIG_DIR/power_orig\" ]; then \
+                         orig_gov=\"$(cat \"$ORIG_DIR/power_orig\")\"; \
+                         for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do \
+                           [ -e \"$f\" ] && [ -w \"$f\" ] && {{ printf '%s\\n' \"$orig_gov\" > \"$f\" 2>/dev/null || true; }}; \
+                         done; \
+                       fi; \
+                       if [ -s \"$ORIG_DIR/epp_orig\" ]; then \
+                         orig_epp=\"$(cat \"$ORIG_DIR/epp_orig\")\"; \
+                         for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do \
+                           [ -e \"$f\" ] && [ -w \"$f\" ] && {{ printf '%s\\n' \"$orig_epp\" > \"$f\" 2>/dev/null || true; }}; \
+                         done; \
+                       fi; \
+                       echo 'OK'; \
                      else echo 'Nessuna impostazione originale salvata: non hai ancora cambiato profilo.'; fi"
                 ),
             ),
@@ -694,7 +777,7 @@ format!(
             });
             ui.add_space(6.0);
         }
-        ui.label(egui::RichText::new(t("Le impostazioni valgono fino al riavvio del computer.")).color(ui::TEXT_DIM));
+        ui.label(egui::RichText::new(t("Le impostazioni valgono fino al riavvio del computer.")).color(ui::text_dim()));
         self.show_out(ui, "power", 100.0);
     }
 
@@ -776,7 +859,7 @@ format!(
             ui.label(t("Processi pesanti: mostra le applicazioni che consumano più CPU e RAM."));
             ui.label(t("Ottimizza tutto: manutenzione completa automatica (TRIM, pulizia cache, ottimizzazione memoria)."));
             ui.add_space(4.0);
-            ui.colored_label(ui::WARN, t("Attenzione: alcune operazioni richiedono privilegi di amministratore."));
+            ui.colored_label(ui::semantic_text(ui::WARN), t("Attenzione: alcune operazioni richiedono privilegi di amministratore."));
         });
         ui.add_space(8.0);
         ui.horizontal_wrapped(|ui| {
@@ -799,10 +882,10 @@ format!(
         ui.add_space(6.0);
         ui.label(egui::RichText::new(t("Gestione swap")).strong().size(18.0));
         ui.add(egui::Slider::new(&mut self.swappiness, 0..=100).text("vm.swappiness"));
-        ui.label(egui::RichText::new(t("Valori bassi usano di più la RAM; valori alti spostano prima i dati sul disco. 10-30 è ideale per la maggior parte dei PC desktop.")).color(ui::TEXT_DIM));
+        ui.label(egui::RichText::new(t("Valori bassi usano di più la RAM; valori alti spostano prima i dati sul disco. 10-30 è ideale per la maggior parte dei PC desktop.")).color(ui::text_dim()));
         let n = self.swappiness;
         let swap = format!(
-            "sysctl -w vm.swappiness={n} && echo vm.swappiness={n} > /etc/sysctl.d/99-debclean.conf && echo 'OK'"
+            "sysctl -w vm.swappiness={n} && echo vm.swappiness={n} > /etc/sysctl.d/99-debutility.conf && echo 'OK'"
         );
         let total_gb = self.info.sys.total_memory() / 1024 / 1024 / 1024;
         let tune = if total_gb >= 8 { 10 } else { 30 };

@@ -119,7 +119,7 @@ impl App {
             .collect();
 
         ui::card(ui, |ui| {
-            ui.label(egui::RichText::new(format!("{} ({}/{})", t("Servizi di sistema"), filtered.len(), self.services_list.len())).strong().color(ui::ACCENT));
+            ui.label(egui::RichText::new(format!("{} ({}/{})", t("Servizi di sistema"), filtered.len(), self.services_list.len())).strong().color(ui::accent_text()));
             ui.add_space(8.0);
 
             for svc in &filtered {
@@ -128,18 +128,18 @@ impl App {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(&svc.name).strong().size(15.0));
                             if svc.is_masked {
-                                ui.colored_label(ui::BAD, "[MASCHERATO]");
+                                ui.colored_label(ui::semantic_text(ui::BAD), "[MASCHERATO]");
                             } else {
                                 let color = match svc.active_state.as_str() {
                                     "active" => ui::GOOD,
                                     "failed" => ui::BAD,
-                                    _ => ui::TEXT_DIM,
+                                    _ => ui::text_dim(),
                                 };
                                 ui.label(egui::RichText::new(format!("[{}]", svc.active_state)).color(color));
                             }
                         });
                         if !svc.description.is_empty() {
-                            ui.label(egui::RichText::new(&svc.description).size(12.0).color(ui::TEXT_DIM));
+                            ui.label(egui::RichText::new(&svc.description).size(12.0).color(ui::text_dim()));
                         }
                     });
 
@@ -148,7 +148,7 @@ impl App {
                         
                         if svc.is_masked {
                             // Pulsante dedicato per i servizi mascherati
-                            if ui.add_enabled(!self.busy, egui::Button::new(egui::RichText::new(t("Smaschera e Attiva")).color(ui::ACCENT))).clicked() {
+                            if ui.add_enabled(!self.busy, egui::Button::new(egui::RichText::new(t("Smaschera e Attiva")).color(ui::accent_text()))).clicked() {
                                 let script = format!("sudo systemctl unmask {} && sudo systemctl enable --now {}", util::shq(&name), util::shq(&name));
                                 let job = crate::cmd_job("services", script, true);
                                 self.spawn(ctx, job);

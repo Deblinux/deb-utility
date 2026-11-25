@@ -1,11 +1,21 @@
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub fn is_root() -> bool {
+pub fn uid() -> u32 {
     std::fs::read_to_string("/proc/self/status")
         .ok()
-        .and_then(|s| s.lines().find(|l| l.starts_with("Uid:")).map(|l| l.to_string()))
-        .map(|l| l.split_whitespace().nth(1) == Some("0"))
-        .unwrap_or(false)
+        .and_then(|s| {
+            s.lines()
+                .find(|l| l.starts_with("Uid:"))
+                .and_then(|l| l.split_whitespace().nth(1))
+                .and_then(|u| u.parse().ok())
+        })
+        .unwrap_or(0)
+}
+
+pub fn is_root() -> bool {
+    uid() == 0
 }
 
 /// Esegue uno script di shell. Se `privileged` e non siamo root usa pkexec
@@ -42,8 +52,55 @@ pub fn shq(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
+/// Home dell'utente che ha avviato DebUtility.
+///
+/// Se il programma gira come root (pkexec/sudo), `$HOME` sarebbe `/root` e
+/// tutte le operazioni sulla home finirebbero nel posto sbagliato: in quel
+/// caso risolviamo la home dell'utente reale tramite `PKEXEC_UID`/`SUDO_USER`.
 pub fn home() -> String {
-    std::env::var("HOME").unwrap_or_default()
+    if is_root() {
+        let accounts = [
+            std::env::var("PKEXEC_UID").ok(),
+            std::env::var("SUDO_USER").ok(),
+        ];
+        for account in accounts.into_iter().flatten() {
+            if let Some(h) = home_for_account(&account) {
+                return h;
+            }
+        }
+    }
+    std::env::var("HOME")
+        .ok()
+        .filter(|h| !h.is_empty())
+        .unwrap_or_else(|| {
+            if is_root() {
+                "/root".to_string()
+            } else {
+                String::new()
+            }
+        })
+}
+
+/// Ricava la home di un utente (uid numerico o nome) da `getent passwd`.
+fn home_for_account(account: &str) -> Option<String> {
+    let account = account.trim();
+    if account.is_empty() {
+        return None;
+    }
+    let out = Command::new("getent")
+        .args(["passwd", account])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    stdout
+        .lines()
+        .next()
+        .and_then(|line| line.split(':').nth(5))
+        .map(|h| h.trim().to_string())
+        .filter(|h| !h.is_empty())
 }
 
 pub fn username() -> String {
@@ -145,4 +202,160 @@ pub fn run_stream(script: &str, privileged: bool, mut emit: impl FnMut(&str, boo
         emit(&String::from_utf8_lossy(&cur), true);
     }
     child.wait().map(|s| s.success()).unwrap_or(false)
+}
+
+/// Cartella di stato per i dati scritti dalla modalità headless.
+///
+/// Usa `XDG_STATE_HOME/debutility` o `~/.local/state/debutility`; se la home non
+/// è scrivibile ripiega su `~/.config/debutility` e infine su una cartella
+/// privata in `/tmp`. Restituisce un errore esplicito se nessuna è utilizzabile.
+pub fn state_dir() -> Result<PathBuf, String> {
+    let home = home();
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(xdg) = std::env::var("XDG_STATE_HOME") {
+        if xdg.starts_with('/') {
+            candidates.push(PathBuf::from(xdg).join("debutility"));
+        }
+    }
+    if !home.is_empty() {
+        candidates.push(PathBuf::from(&home).join(".local/state/debutility"));
+        candidates.push(PathBuf::from(&home).join(".config/debutility"));
+    }
+    candidates.push(PathBuf::from("/tmp").join(format!("debutility-state-{}", uid())));
+
+    let mut last_error = String::new();
+    for dir in candidates {
+        match std::fs::create_dir_all(&dir) {
+            Ok(()) => {
+                // La cartella contiene lo stato della pulizia: solo l'utente
+                // che la crea deve poterla leggere/scrivere.
+                std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+                    .map_err(|e| format!("Impossibile proteggere {}: {e}", dir.display()))?;
+                return Ok(dir);
+            }
+            Err(e) => last_error = format!("{}: {e}", dir.display()),
+        }
+    }
+    Err(format!(
+        "Impossibile creare una cartella di stato per DebUtility ({last_error})"
+    ))
+}
+
+/// Cartelle di stato usate dalle versioni precedenti, lette in fallback.
+///
+/// Non vengono create né modificate: servono solo a recuperare `last-run.json`
+/// e `last-run.log` scritti quando l'applicazione si chiamava debclean.
+pub fn legacy_state_dirs() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Ok(xdg) = std::env::var("XDG_STATE_HOME") {
+        if xdg.starts_with('/') {
+            dirs.push(PathBuf::from(xdg).join("debclean"));
+        }
+    }
+    let home = home();
+    if !home.is_empty() {
+        dirs.push(PathBuf::from(&home).join(".local/state/debclean"));
+        dirs.push(PathBuf::from(&home).join(".config/debclean"));
+    }
+    dirs.push(PathBuf::from("/tmp").join(format!("debclean-state-{}", uid())));
+    dirs
+}
+
+/// Scrive un file in modo atomico (scrittura temporanea + rename).
+pub fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(dir)
+        .map_err(|e| format!("Impossibile creare {}: {e}", dir.display()))?;
+    let tmp = dir.join(format!(".debutility-{}.tmp", std::process::id()));
+    std::fs::write(&tmp, contents)
+        .map_err(|e| format!("Impossibile scrivere {}: {e}", tmp.display()))?;
+    match std::fs::rename(&tmp, path) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let cleanup = std::fs::remove_file(&tmp)
+                .err()
+                .map(|c| format!("; impossibile rimuovere {}: {c}", tmp.display()))
+                .unwrap_or_default();
+            Err(format!(
+                "Impossibile sostituire {}: {e}{cleanup}",
+                path.display()
+            ))
+        }
+    }
+}
+
+/// Data/ora leggibile per i file di stato. `date` è presente su ogni Debian;
+/// se manca viene usato il timestamp epoch, sempre non ambiguo.
+pub fn timestamp() -> String {
+    Command::new("date")
+        .arg("+%Y-%m-%d %H:%M:%S %z")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            let secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            format!("epoch {secs}")
+        })
+}
+
+fn executable_file(p: &Path) -> bool {
+    std::fs::metadata(p)
+        .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+/// Eseguibile da mettere nell'unità systemd.
+///
+/// Usa il percorso del processo in esecuzione; se non è disponibile o non è
+/// eseguibile cerca `debutility` nel PATH. Come ultima risorsa accetta anche il
+/// vecchio eseguibile `debclean`, così le unità systemd precedenti restano
+/// utilizzabili finché non vengono migrate.
+pub fn debutility_executable() -> String {
+    if let Ok(p) = std::env::current_exe() {
+        if executable_file(&p) {
+            return p.to_string_lossy().to_string();
+        }
+    }
+    let mut legacy = None;
+    if let Ok(path) = std::env::var("PATH") {
+        for dir in path.split(':').filter(|d| !d.is_empty()) {
+            let candidate = Path::new(dir).join("debutility");
+            if executable_file(&candidate) {
+                return candidate.to_string_lossy().to_string();
+            }
+            if legacy.is_none() {
+                let old = Path::new(dir).join("debclean");
+                if executable_file(&old) {
+                    legacy = Some(old.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+    legacy.unwrap_or_else(|| "debutility".to_string())
+}
+
+/// Racchiude un argomento per `ExecStart=` secondo la sintassi systemd:
+/// virgolette doppie, escape C-style e raddoppio di `%` (specifier).
+pub fn systemd_arg(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '%' => out.push_str("%%"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }

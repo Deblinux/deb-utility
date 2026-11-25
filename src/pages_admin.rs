@@ -379,6 +379,7 @@ impl App {
             ui,
             "Controlla se il sistema ha problemi (pacchetti rotti, servizi fermi, disco quasi pieno...). Il segno ✔ verde significa che va tutto bene; se vedi ⚠ o ✘ premi «Correggi» accanto al problema, oppure «Correggi tutto».",
         );
+        self.snapshot_toggle(ui);
         
         let fix_list: Vec<&str> = self
             .checks
@@ -396,7 +397,7 @@ impl App {
                 .add_enabled(!self.busy && !all_fixes.is_empty(), egui::Button::new(t("🛠 Correggi tutto")))
                 .clicked()
             {
-                self.spawn(ctx, fix_job(all_fixes.clone()));
+                self.spawn_snapshot(ctx, fix_job(all_fixes.clone()));
             }
             if self.busy {
                 ui.spinner();
@@ -426,16 +427,16 @@ impl App {
                         }
                     }
                 });
-                ui.label(egui::RichText::new(tr_detail(&c.detail)).color(ui::TEXT_DIM));
+                ui.label(egui::RichText::new(tr_detail(&c.detail)).color(ui::text_dim()));
                 ui.add_space(6.0);
             }
         });
         if let Some(f) = fix_one {
-            self.spawn(ctx, fix_job(f));
+            self.spawn_snapshot(ctx, fix_job(f));
         }
 ui.add_space(8.0);
     ui::card(ui, |ui| {
-        ui.label(egui::RichText::new(t("Risoluzione Errori APT e Chiavi GPG")).strong().color(ui::ACCENT).size(16.0));
+        ui.label(egui::RichText::new(t("Risoluzione Errori APT e Chiavi GPG")).strong().color(ui::accent_text()).size(16.0));
         ui.add_space(4.0);
         ui.label(t("Rileva automaticamente le firme digitali mancanti (NO_PUBKEY) dai repository PPA di terze parti e le scarica dai server ufficiali per sbloccare gli aggiornamenti di sistema."));
         ui.add_space(8.0);
@@ -443,25 +444,25 @@ ui.add_space(8.0);
         if ui::primary_button(ui, t("Correggi chiavi GPG mancanti"), !self.busy).clicked() {
             let script = crate::solutions::fix_missing_gpg_keys_script(); // <-- Modifica qui
             let job = crate::cmd_job("fixer", script, true);
-            self.spawn(ctx, job);
+            self.spawn_snapshot(ctx, job);
         }
     });
         ui.separator();
         ui.heading(t("Strumenti di riparazione manuali"));
         ui.horizontal_wrapped(|ui| {
-            self.run_btn(
+            self.run_btn_snapshot(
                 ui, ctx, t("Ripara database APT"), "fixer",
                 "if command -v fuser >/dev/null 2>&1 && fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock >/dev/null 2>&1; then echo 'apt/dpkg è in esecuzione: attendi che finisca prima di riparare.'; exit 1; fi; rm -f /var/lib/apt/lists/lock /var/cache/apt/archives/lock; dpkg --configure -a; apt-get -y -f install; apt-get update",
                 true, None,
             );
-            self.run_btn(ui, ctx, t("Correggi dipendenze rotte"), "fixer", "apt-get -y -f install", true, None);
-            self.run_btn(ui, ctx, t("Riconfigura pacchetti"), "fixer", "dpkg --configure -a", true, None);
-            self.run_btn(ui, ctx, t("Pulisci pacchetti orfani"), "fixer", "apt-get -y autoremove --purge", true, None);
-            self.run_btn(
+            self.run_btn_snapshot(ui, ctx, t("Correggi dipendenze rotte"), "fixer", "apt-get -y -f install", true, None);
+            self.run_btn_snapshot(ui, ctx, t("Riconfigura pacchetti"), "fixer", "dpkg --configure -a", true, None);
+            self.run_btn_snapshot(ui, ctx, t("Pulisci pacchetti orfani"), "fixer", "apt-get -y autoremove --purge", true, None);
+            self.run_btn_snapshot(
                 ui, ctx, t("Ripara chiavi APT mancanti"), "fixer",
                 "for k in $(apt-get update 2>&1 | grep -o 'NO_PUBKEY [0-9A-F]*' | awk '{print $2}' | sort -u); do \
                  gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys $k && \
-                 gpg --batch --export $k > /etc/apt/trusted.gpg.d/debclean-$k.gpg; done; apt-get update",
+                 gpg --batch --export $k > /etc/apt/trusted.gpg.d/debutility-$k.gpg; done; apt-get update",
                 true, None,
             );
             self.run_btn(
@@ -476,7 +477,7 @@ ui.add_space(8.0);
                  find /etc \\( -name '*.dpkg-old' -o -name '*.dpkg-dist' -o -name '*.ucf-dist' \\) 2>/dev/null | head -100",
                 false, None,
             );
-            self.run_btn(
+            self.run_btn_snapshot(
                 ui, ctx, t("Pulisci residui dpkg/rc"), "fixer",
                 "RC_PKGS=$(dpkg -l | awk '/^rc/{print $2}'); \
                  if [ -n \"$RC_PKGS\" ]; then dpkg --purge $RC_PKGS; else echo 'Nessun pacchetto in stato rc.'; fi; \
@@ -489,7 +490,7 @@ ui.add_space(8.0);
                 "systemctl --failed --no-pager --plain || true",
                 false, None,
             );
-            self.run_btn(
+            self.run_btn_snapshot(
                 ui, ctx, t("Riavvia servizi falliti"), "fixer",
                 "UNITS=$(systemctl --failed --no-legend --plain | awk '{print $1}'); \
                  if [ -z \"$UNITS\" ]; then echo 'Nessuna unità systemd in stato failed.'; \
@@ -575,7 +576,7 @@ ui.add_space(8.0);
         ui.add(egui::Slider::new(&mut self.swappiness, 0..=100).text(t("vm.swappiness")));
         let n = self.swappiness;
         let script = format!(
-            "sysctl -w vm.swappiness={n} && echo vm.swappiness={n} > /etc/sysctl.d/99-debclean.conf && echo 'Swappiness impostato (permanente)'"
+            "sysctl -w vm.swappiness={n} && echo vm.swappiness={n} > /etc/sysctl.d/99-debutility.conf && echo 'Swappiness impostato (permanente)'"
         );
         self.run_btn(ui, ctx, t("Applica swappiness"), "perf", &script, true, None);
         self.show_out(ui, "perf", 100.0);
@@ -613,12 +614,12 @@ ui.add_space(8.0);
         });
         let valid = self.grub_line.chars().all(|c| c.is_ascii_alphanumeric() || " _=.,:-".contains(c));
         if !valid {
-            ui.colored_label(ui::BAD, t("Caratteri non ammessi nei parametri."));
+            ui.colored_label(ui::semantic_text(ui::BAD), t("Caratteri non ammessi nei parametri."));
         }
 
         let clean_grub = self.grub_line.trim();
         let script = format!(
-            "cp -n /etc/default/grub /etc/default/grub.debclean.bak; \
+            "cp -n /etc/default/grub /etc/default/grub.debutility.bak; \
              VAL={}; \
              awk -v val=\"$VAL\" 'BEGIN{{done=0}} /^GRUB_CMDLINE_LINUX_DEFAULT=/{{\
                print \"GRUB_CMDLINE_LINUX_DEFAULT=\\\"\" val \"\\\"\"; done=1; next}} \
@@ -631,14 +632,14 @@ ui.add_space(8.0);
             ui.add_enabled_ui(valid, |ui| {
                 self.run_btn(
                     ui, ctx, t("💾 Salva e aggiorna GRUB"), "grub", &script, true,
-                    Some(t("Salvare i parametri e rigenerare GRUB? Verrà creato un backup in /etc/default/grub.debclean.bak.")),
+                    Some(t("Salvare i parametri e rigenerare GRUB? Verrà creato un backup in /etc/default/grub.debutility.bak.")),
                 );
             });
             if ui.button(t("Anteprima")).clicked() {
                 self.grub_preview = grub_preview_text(&self.grub_line);
             }
             self.run_btn(ui, ctx, t("Aggiorna GRUB"), "grub", "update-grub", true, None);
-            let restore_script = "if [ -f /etc/default/grub.debclean.bak ]; then cp /etc/default/grub.debclean.bak /etc/default/grub && update-grub; else echo 'Nessun backup grub.debclean.bak trovato'; exit 1; fi";
+            let restore_script = "if [ -f /etc/default/grub.debutility.bak ]; then cp /etc/default/grub.debutility.bak /etc/default/grub && update-grub; elif [ -f /etc/default/grub.debclean.bak ]; then cp /etc/default/grub.debclean.bak /etc/default/grub && update-grub; else echo 'Nessun backup grub.debutility.bak o grub.debclean.bak trovato'; exit 1; fi";
             self.run_btn(
                 ui,
                 ctx,
@@ -646,7 +647,7 @@ ui.add_space(8.0);
                 "grub",
                 restore_script,
                 true,
-                Some(t("Ripristinare /etc/default/grub dal backup debclean.bak e aggiornare GRUB?")),
+                Some(t("Ripristinare /etc/default/grub dal backup debutility.bak e aggiornare GRUB?")),
             );
         });
         if !self.grub_preview.is_empty() {
@@ -706,7 +707,7 @@ ui.add_space(8.0);
                 let l = self.repo_line.trim().to_string();
                 let valid = (l.starts_with("deb ") || l.starts_with("deb-src ")) && !l.contains('\n');
                 let script = format!(
-                    "printf '%s\\n' {} >> /etc/apt/sources.list.d/debclean.list && apt-get update",
+                    "printf '%s\\n' {} >> /etc/apt/sources.list.d/debutility.list && apt-get update",
                     util::shq(&l)
                 );
                 ui.add_enabled_ui(valid, |ui| {
@@ -718,8 +719,9 @@ ui.add_space(8.0);
             _ => {
                 let cn = codename();
                 ui.label(format!("{}: {}", t("Release rilevata"), if cn.is_empty() { "n/d" } else { &cn }));
-                let present = std::path::Path::new("/etc/apt/sources.list.d/debclean-backports.list").exists();
-                ui.label(format!("Backports: {}", if present { t("abilitati da DebClean") } else { t("non abilitati da DebClean") }));
+                let present = std::path::Path::new("/etc/apt/sources.list.d/debutility-backports.list").exists()
+                    || std::path::Path::new("/etc/apt/sources.list.d/debclean-backports.list").exists();
+                ui.label(format!("Backports: {}", if present { t("abilitati da DebUtility") } else { t("non abilitati da DebUtility") }));
                 if cn.is_empty() || cn == "sid" || cn == "testing" || !cn.chars().all(|c| c.is_ascii_alphanumeric()) {
                     ui.label(t("I Backports non sono disponibili per questa release."));
                 } else {
@@ -729,7 +731,7 @@ ui.add_space(8.0);
                         "main contrib non-free non-free-firmware"
                     };
                     let script = format!(
-                        "echo 'deb http://deb.debian.org/debian {cn}-backports {comps}' > /etc/apt/sources.list.d/debclean-backports.list && apt-get update"
+                        "echo 'deb http://deb.debian.org/debian {cn}-backports {comps}' > /etc/apt/sources.list.d/debutility-backports.list && apt-get update"
                     );
                     self.run_btn(ui, ctx, t("Abilita Debian Backports"), "repo", &script, true,
                         Some(t("Abilitare i Debian Backports?")));
@@ -766,7 +768,7 @@ ui.add_space(8.0);
         ui.add_space(8.0);
 
         if self.drv.is_empty() {
-            ui.label(egui::RichText::new(t("Premi «Rileva hardware e driver» per analizzare il computer.")).color(ui::TEXT_DIM));
+            ui.label(egui::RichText::new(t("Premi «Rileva hardware e driver» per analizzare il computer.")).color(ui::text_dim()));
             return;
         }
 
@@ -793,15 +795,15 @@ ui.add_space(8.0);
                         egui::Checkbox::new(&mut d.sel, egui::RichText::new(d.pkg).strong().size(18.0)),
                     );
                     if d.installed {
-                        ui.colored_label(ui::GOOD, t("già installato"));
+                        ui.colored_label(ui::semantic_text(ui::GOOD), t("già installato"));
                     } else if !d.available {
-                        ui.colored_label(ui::WARN, t("non disponibile nei repository"));
+                        ui.colored_label(ui::semantic_text(ui::WARN), t("non disponibile nei repository"));
                     } else if d.recommended {
-                        ui.colored_label(ui::ACCENT, t("consigliato"));
+                        ui.colored_label(ui::accent_text(), t("consigliato"));
                     }
                 });
                 ui.label(t(d.desc));
-                ui.label(egui::RichText::new(format!("{}: {}", t("Hardware"), d.hw)).color(ui::TEXT_DIM));
+                ui.label(egui::RichText::new(format!("{}: {}", t("Hardware"), d.hw)).color(ui::text_dim()));
             });
             ui.add_space(6.0);
         }
@@ -825,7 +827,7 @@ ui.add_space(8.0);
                     "main contrib non-free non-free-firmware"
                 };
                 let script = format!(
-                    "echo 'deb http://deb.debian.org/debian {cn} {comps}' > /etc/apt/sources.list.d/debclean-nonfree.list && apt-get update"
+                    "echo 'deb http://deb.debian.org/debian {cn} {comps}' > /etc/apt/sources.list.d/debutility-nonfree.list && apt-get update"
                 );
                 let job: Job = Box::new(move |ch| {
                     let (ok, out) = util::run_shell(&script, true);
@@ -885,7 +887,7 @@ pub(crate) fn ui_startup(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         match self.sub {
             0 => {
                 ui.label(t("Disattiva le applicazioni avviate automaticamente al login per ridurre i tempi di avvio."));
-                let filter_id = egui::Id::new("debclean_startup_filter");
+                let filter_id = egui::Id::new("debutility_startup_filter");
                 let mut filter_text = ui.data_mut(|d| {
                     d.get_temp::<String>(filter_id).unwrap_or_default()
                 });
@@ -1001,6 +1003,6 @@ pub(crate) fn ui_startup(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 self.load_groups(ctx);
             }
         });
-        ui.label(egui::RichText::new(t("Le modifiche diventano attive dopo logout o riavvio.")).color(crate::ui::TEXT_DIM));
+        ui.label(egui::RichText::new(t("Le modifiche diventano attive dopo logout o riavvio.")).color(crate::ui::text_dim()));
     }
 }

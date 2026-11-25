@@ -1,4 +1,4 @@
-//! Traduzioni di DebClean.
+//! Traduzioni di DebUtility.
 //!
 //! Le stringhe originali sono in italiano e fanno da chiave. Le traduzioni stanno nel file
 //! `lang/strings.tsv` (incorporato nel binario): una riga per stringa, colonne separate da TAB:

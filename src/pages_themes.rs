@@ -191,7 +191,7 @@ impl App {
                             };
                             ui.label(icon);
                             ui.label(egui::RichText::new(&item.name).strong().size(15.0));
-                            ui.label(egui::RichText::new(format!("[{}]", item.item_type.label())).color(ui::TEXT_DIM));
+                            ui.label(egui::RichText::new(format!("[{}]", item.item_type.label())).color(ui::text_dim()));
                         });
                         ui.add_space(4.0);
                     }

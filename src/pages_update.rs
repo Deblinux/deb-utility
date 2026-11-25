@@ -1,5 +1,5 @@
 use crate::i18n::{t, tf};
-use crate::{ui, util, App, Chan, Job, Msg};
+use crate::{ui, util, App, Chan, Job, Msg, ProgressReporter};
 use eframe::egui;
 
 /// Opzioni che rendono `apt-get update` più veloce e meno soggetto a blocchi.
@@ -37,12 +37,21 @@ fn mark(ok: bool) -> &'static str {
 }
 
 /// Esegue uno script mostrando l'output riga per riga nella casella `key`.
-fn stream_into(ch: &Chan, key: &'static str, script: &str, privileged: bool) -> bool {
+fn stream_into(
+    ch: &Chan,
+    key: &'static str,
+    script: &str,
+    privileged: bool,
+    prog: &mut ProgressReporter,
+) -> bool {
     ch.send(Msg::Out(key, String::new()));
     if privileged {
-        ch.send(Msg::Live(key, t("Attendo l'autorizzazione di amministratore...").to_string(), false));
+        let wait = t("Attendo l'autorizzazione di amministratore...").to_string();
+        ch.send(Msg::Live(key, wait.clone(), false));
+        prog.status(wait);
     }
     util::run_stream(script, privileged, |line, commit| {
+        prog.track_line(line);
         ch.send(Msg::Live(key, line.to_string(), commit));
     })
 }
@@ -53,16 +62,26 @@ fn check_job() -> Job {
         ch.send(Msg::Log(t("▶ Cerco aggiornamenti...").to_string()));
         ch.send(Msg::FlatLoading);
         let ch2 = ch.clone();
-        std::thread::spawn(move || {
+        let flat_handle = std::thread::spawn(move || {
             ch2.send(Msg::Out("upd_flat", String::new()));
-            ch2.send(Msg::Live("upd_flat", t("Controllo gli aggiornamenti Flatpak...").to_string(), false));
+            let wait = t("Controllo gli aggiornamenti Flatpak...").to_string();
+            ch2.send(Msg::Live("upd_flat", wait.clone(), false));
+            let mut flat_prog = ProgressReporter::start(&ch2, "upd_flat", t("Controllo aggiornamenti Flatpak..."));
+            flat_prog.status(wait);
             let v = read_flatpak_updates();
             ch2.send(Msg::Out("upd_flat", String::new()));
             ch2.send(Msg::UpdFlat(v));
+            flat_prog.finish(t("Controllo Flatpak completato"));
         });
-        let ok = stream_into(ch, "upd_apt", APT_UPDATE, true);
+        let mut apt_prog =
+            ProgressReporter::start(ch, "upd_apt", t("Ricerca aggiornamenti APT in corso..."));
+        let ok = stream_into(ch, "upd_apt", APT_UPDATE, true, &mut apt_prog);
         ch.send(Msg::Log(format!("{} apt-get update", mark(ok))));
         ch.send(Msg::UpdApt(read_apt_upgradable(), true));
+        apt_prog.finish(t("Ricerca aggiornamenti completata"));
+        // Attende anche Flatpak: così `busy` resta true finché entrambe le
+        // barre non sono completate e l'utente vede sempre lo stato reale.
+        let _ = flat_handle.join();
     })
 }
 
@@ -75,9 +94,12 @@ fn upd_job(apt: bool, flat: bool, refresh: bool) -> Job {
             let ch2 = ch.clone();
             Some(std::thread::spawn(move || {
                 ch2.send(Msg::Log(t("▶ Aggiorno le app Flatpak...").to_string()));
-                let ok = stream_into(&ch2, "upd_flat", FLATPAK_UPDATE, false);
+                let mut flat_prog =
+                    ProgressReporter::start(&ch2, "upd_flat", t("Aggiornamento app Flatpak in corso..."));
+                let ok = stream_into(&ch2, "upd_flat", FLATPAK_UPDATE, false, &mut flat_prog);
                 ch2.send(Msg::Log(format!("{} Flatpak", mark(ok))));
                 ch2.send(Msg::UpdFlat(read_flatpak_updates()));
+                flat_prog.finish(t("Aggiornamento Flatpak completato"));
             }))
         } else {
             None
@@ -85,9 +107,12 @@ fn upd_job(apt: bool, flat: bool, refresh: bool) -> Job {
         if apt {
             ch.send(Msg::Log(t("▶ Aggiorno i pacchetti APT...").to_string()));
             let script = if refresh { format!("{APT_UPDATE} && {APT_UPGRADE}") } else { APT_UPGRADE.to_string() };
-            let ok = stream_into(ch, "upd_apt", &script, true);
+            let mut apt_prog =
+                ProgressReporter::start(ch, "upd_apt", t("Aggiornamento pacchetti APT in corso..."));
+            let ok = stream_into(ch, "upd_apt", &script, true, &mut apt_prog);
             ch.send(Msg::Log(format!("{} APT", mark(ok))));
             ch.send(Msg::UpdApt(read_apt_upgradable(), true));
+            apt_prog.finish(t("Aggiornamento APT completato"));
         }
         if let Some(h) = flat_handle {
             let _ = h.join();
@@ -115,7 +140,7 @@ impl App {
                 ui.label(t("Aggiornamenti non ancora controllati: premi «Cerca aggiornamenti»."));
             } else {
                 if na == 0 {
-                    ui.label(egui::RichText::new(t("Nessun aggiornamento APT: il sistema è aggiornato.")).size(18.0).strong().color(ui::GOOD));
+                    ui.label(egui::RichText::new(t("Nessun aggiornamento APT: il sistema è aggiornato.")).size(18.0).strong().color(ui::semantic_text(ui::GOOD)));
                 } else {
                     ui.label(egui::RichText::new(tf("{} aggiornamenti APT disponibili", &[&na])).size(18.0).strong());
                 }
@@ -125,18 +150,18 @@ impl App {
                         ui.label(t("Controllo gli aggiornamenti Flatpak..."));
                     });
                 } else if nf == 0 {
-                    ui.label(egui::RichText::new(t("Nessun aggiornamento Flatpak.")).size(18.0).strong().color(ui::GOOD));
+                    ui.label(egui::RichText::new(t("Nessun aggiornamento Flatpak.")).size(18.0).strong().color(ui::semantic_text(ui::GOOD)));
                 } else {
                     ui.label(egui::RichText::new(tf("{} aggiornamenti Flatpak disponibili", &[&nf])).size(18.0).strong());
                 }
             }
             if reboot {
-                ui.colored_label(ui::WARN, t("Serve riavviare il computer per completare l'aggiornamento."));
+                ui.colored_label(ui::semantic_text(ui::WARN), t("Serve riavviare il computer per completare l'aggiornamento."));
             }
         });
         ui.add_space(8.0);
 
-        let confirm_text = t("Aggiornare ora? L'operazione può richiedere diversi minuti: non spegnere il computer e non chiudere DebClean finché non finisce.");
+        let confirm_text = t("Aggiornare ora? L'operazione può richiedere diversi minuti: non spegnere il computer e non chiudere DebUtility finché non finisce.");
         let refresh = !self.upd_checked;
         ui.horizontal_wrapped(|ui| {
             if ui.add_enabled(!self.busy, egui::Button::new(t("Cerca aggiornamenti"))).clicked() {
@@ -157,31 +182,9 @@ impl App {
          });
         ui.add_space(8.0);
 
-        if self.busy {
-            let mut frac: f32 = 0.15;
-            let mut fase = t("Aggiornamento in corso...");
-            if self.live.contains_key("upd_flat") {
-                frac = 0.78;
-                fase = t("Aggiornamento pacchetti Flatpak in corso...");
-            } else if self.live.contains_key("upd_apt") {
-                frac = 0.45;
-                fase = t("Aggiornamento pacchetti APT in corso...");
-            }
-            ui::card(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let w = (ui.available_width() - 32.0).max(120.0);
-                    ui.add(
-                        egui::ProgressBar::new(frac.clamp(0.0, 1.0))
-                            .show_percentage()
-                            .desired_width(w),
-                    );
-                    ui.spinner();
-                });
-                ui.add_space(4.0);
-                ui.label(egui::RichText::new(fase).color(ui::TEXT_DIM));
-            });
-            ui.add_space(8.0);
-        }
+        // L'avanzamento in tempo reale è disegnato in cima al pannello
+        // centrale (e in forma compatta nella barra di stato): qui restano
+        // solo i pulsanti e l'output dei due comandi.
 
         // output in tempo reale
         if self.out.contains_key("upd_apt") || self.live.contains_key("upd_apt") {

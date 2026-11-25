@@ -20,6 +20,11 @@ const GUIDE: &[(&str, &[Entry])] = &[
                 "Esegue una diagnostica rapida in un clic su carico CPU e load average, uso di RAM e swap, spazio libero sulle partizioni, processi più esosi e unità systemd in stato failed, offrendo pulsanti diretti per aprire la sezione relativa.",
                 "",
             ),
+            (
+                "Barre di avanzamento",
+                "Le operazioni lunghe (scansioni, pulizie, aggiornamenti, rimozione kernel) mostrano una barra con percentuale e la descrizione del passaggio in corso. Puoi continuare a usare l'interfaccia: i risultati compaiono automaticamente quando il lavoro in background termina.",
+                "",
+            ),
         ],
     ),
     (
@@ -42,8 +47,13 @@ const GUIDE: &[(&str, &[Entry])] = &[
             ),
             (
                 "Residui di sistema",
-                "Scansiona e rimuove le configurazioni residue dei pacchetti disinstallati (pacchetti RC), i runtime e le app Flatpak non più utilizzati, liberando spazio prezioso. Vedi l'elenco completo, scegli cosa eliminare e confermi prima che venga cancellato qualcosa.",
+                "Scansiona e rimuove le configurazioni residue dei pacchetti disinstallati (pacchetti RC), i backup di configurazione dimenticati, i runtime e le app Flatpak non più utilizzati, liberando spazio prezioso. Vedi l'elenco completo, scegli cosa eliminare e confermi prima che venga cancellato qualcosa. I singoli backup di configurazione vengono spostati in quarantena, non eliminati subito.",
                 "",
+            ),
+            (
+                "Snapshot pre-pulizia",
+                "In «Pulizia», «Residui di sistema», «Fixer» e «Pulizia Chirurgica» puoi spuntare «Crea snapshot di sicurezza prima di procedere». Se Timeshift o Snapper è installato, DebUtility crea un'istantanea del sistema prima di rimuovere qualsiasi elemento.",
+                "L'opzione è disponibile solo se Timeshift o Snapper è installato. Se la creazione dello snapshot fallisce, la pulizia viene annullata e nessun file viene rimosso.",
             ),
             (
                 "Gestione AppImage",
@@ -57,13 +67,18 @@ const GUIDE: &[(&str, &[Entry])] = &[
             ),
             (
                 "File duplicati",
-                "Scansiona le cartelle selezionate per individuare i file identici tramite impronta digitale SHA-256, indipendentemente dal nome. Lascia deselezionata la prima copia di ogni gruppo e spunta automaticamente i doppioni per eliminarli in sicurezza.",
-                "L'eliminazione dei file selezionati è definitiva e non passa dal cestino.",
+                "Scansiona le cartelle selezionate per individuare i file identici tramite impronta digitale SHA-256, indipendentemente dal nome. Lascia deselezionata la prima copia di ogni gruppo e spunta automaticamente i doppioni: quelli selezionati vengono spostati in quarantena, non cancellati subito.",
+                "Controlla sempre l'elenco prima di confermare: il primo file di ogni gruppo viene conservato. Le copie spostate restano recuperabili per 7 giorni dalla scheda Quarantena / Ripristino.",
+            ),
+            (
+                "Quarantena / Ripristino",
+                "Raccoglie i singoli file spostati via dalle schede File duplicati e Residui di sistema (backup di configurazione). Per ogni file mostra il percorso originale, la data, la dimensione e il modulo di origine. Puoi ripristinarlo esattamente dov'era, eliminarlo definitivamente dopo averlo controllato oppure lasciare che scada automaticamente dopo 7 giorni. La cartella è privata e non sostituisce gli snapshot di sistema.",
+                "Livello di rischio: con cautela. Il ripristino non sovrascrive un file già presente nel percorso originale: se esiste, prima sposta o rinomina quel file. Dopo la scadenza i file vengono eliminati senza recupero; per operazioni su cartelle o su più file usa gli snapshot di Timeshift/Snapper, non questa scheda.",
             ),
             (
                 "Pianificatore di manutenzione",
-                "Crea timer e servizi systemd a livello utente che operano in background senza tenere aperto DebClean. Esegue periodicamente la pulizia della cache utente e il trimming dell'SSD, mantenendo il sistema veloce e pulito a costo zero di RAM.",
-                "Disattivando il timer la manutenzione tornerà a essere esclusivamente manuale.",
+                "Crea un timer systemd utente che avvia direttamente DebUtility in modalità headless (--clean --yes --json) ogni giorno, ogni settimana o una volta al mese alle 03:30. Puoi scegliere le categorie da includere: cache utente e dei browser, miniature, residui APT/Flatpak, log, file temporanei e file/cartelle vuote. La scheda mostra lo stato del timer, la prossima esecuzione, l'esito dell'ultima pulizia con lo spazio liberato e il log; «Esegui test ora» avvia subito il servizio senza aspettare la scadenza.",
+                "Le categorie contrassegnate con • richiedono l'autorizzazione di amministratore tramite pkexec durante l'esecuzione pianificata. Disattivando o rimuovendo la pianificazione vengono fermati sia il timer sia il servizio; l'ultimo log resta disponibile per la diagnosi.",
             ),
             (
               "Risparmio energetico",
@@ -105,6 +120,11 @@ const GUIDE: &[(&str, &[Entry])] = &[
                 "Gestisci i pacchetti Snap installati sul sistema. Puoi visualizzare l'elenco dei pacchetti con le relative versioni ed editori, aggiornarli tutti contemporaneamente o rimuovere singolarmente quelli non necessari.",
                 "La rimozione richiede i privilegi di amministratore e l'esecuzione del demone snapd sul sistema.",
             ),
+            (
+                "Sviluppo & Container",
+                "Analizza Docker/Podman e gli strumenti di sviluppo (Rust/Cargo, Node.js, Python). Mostra immagini e container inutilizzati, cartelle target/ e node_modules inattive e cache dei gestori di pacchetti, con dimensione e data dell'ultima modifica. Spunta gli elementi da eliminare e premi «Pulisci selezionati».",
+                "Le cartelle target/ e node_modules sono deselezionate di default: ricostruirle può richiedere tempo. Il prune dei container rimuove definitivamente immagini e volumi orfani.",
+            ),
         ],
     ),
     (
@@ -129,6 +149,11 @@ const GUIDE: &[(&str, &[Entry])] = &[
                 "Analizzatore spazio",
                 "Esplora le cartelle del file system per individuare a colpo d'occhio quali file o directory occupano più spazio, permettendo di navigare tra le directory e analizzarne i contenuti in modo visivo.",
                 "",
+            ),
+            (
+                "Analizzatore Disco (Treemap)",
+                "Scansiona una cartella e ne visualizza il contenuto come mappa di rettangoli proporzionali alla dimensione: clic su un rettangolo per entrare nella cartella, «Torna su» per risalire. Il pannello «Top 20 file più pesanti» elenca i file più grandi dell'intero sottoalbero.",
+                "Il tasto destro offre «Sposta nel cestino» ed «Elimina definitivamente»: quest'ultima operazione non è reversibile.",
             ),
             (
                 "Processi",
@@ -167,8 +192,13 @@ const GUIDE: &[(&str, &[Entry])] = &[
         &[
             (
                 "Kernel, Grub e Recovery",
-                "Include quattro schede e il controllo dei kernel orfani: Kernel manager rimuove i vecchi kernel (quello in uso resta protetto) mostrando lo spazio recuperabile in MB/GB per ciascuno, Kernel e prestazioni regola governor e swappiness, Grub modifica i parametri di avvio con anteprima, salvataggio del backup (/etc/default/grub.debclean.bak) e ripristino rapido del backup, e Recovery offre strumenti di emergenza per audio, rete, ripristino/reinstallazione di GRUB e Flathub.",
+                "Include quattro schede e il controllo dei kernel orfani: Kernel manager rimuove i vecchi kernel (quello in uso resta protetto) mostrando lo spazio recuperabile in MB/GB per ciascuno, Kernel e prestazioni regola governor e swappiness, Grub modifica i parametri di avvio con anteprima, salvataggio del backup (/etc/default/grub.debutility.bak) e ripristino rapido del backup, e Recovery offre strumenti di emergenza per audio, rete, ripristino/reinstallazione di GRUB e Flathub.",
                 "Modificare GRUB può impedire l'avvio del computer: controlla sempre l'anteprima e tieni un backup.",
+            ),
+            (
+                "Kernel & Boot",
+                "Mostra lo spazio occupato e libero della partizione /boot e l'elenco dei pacchetti linux-image-* e linux-headers-* installati con le relative dimensioni. Premi «Scansiona kernel e /boot», spunta i kernel vecchi da rimuovere e poi «Rimuovi kernel selezionati»: la rimozione usa pkexec apt-get purge e aggiorna GRUB.",
+                "Il kernel in esecuzione (uname -r) e il secondo kernel più recente sono protetti: mostrano il badge verde «In uso - Protetto» e non possono essere selezionati. Lascia sempre almeno un kernel di riserva funzionante.",
             ),
             (
                 "Repository e driver",
@@ -207,7 +237,7 @@ const GUIDE: &[(&str, &[Entry])] = &[
             ),
             (
                 "Temi e Font Utente",
-                "Gestisce i temi visivi dell'interfaccia, i font personalizzati e la configurazione delle icone utente per adattare l'aspetto grafico di DebClean alle tue preferenze.",
+                "Gestisce i temi visivi dell'interfaccia, i font personalizzati e la configurazione delle icone utente per adattare l'aspetto grafico di DebUtility alle tue preferenze.",
                 "",
             ),
             (
@@ -267,7 +297,7 @@ const GUIDE: &[(&str, &[Entry])] = &[
             ),
             (
                 "Log debug",
-                "Mostra le operazioni eseguite da DebClean e gli errori del journal di sistema; se trova errori noti ti suggerisce come risolverli. Puoi mettere in pausa il registro, pulirlo o ridurre lo spazio occupato su disco dai log di journald impostando una soglia massima in MB.",
+                "Mostra le operazioni eseguite da DebUtility e gli errori del journal di sistema; se trova errori noti ti suggerisce come risolverli. Puoi mettere in pausa il registro, pulirlo o ridurre lo spazio occupato su disco dai log di journald impostando una soglia massima in MB.",
             "",
             ),
             (
@@ -277,7 +307,37 @@ const GUIDE: &[(&str, &[Entry])] = &[
 ),
             (
                 "Impostazioni",
-"Qui scegli la lingua dell'interfaccia, attivi la pulizia rapida della cache utente all'avvio e puoi esportare o importare l'intero profilo delle preferenze di DebClean in un file TOML per trasferirlo facilmente su altri sistemi. DebClean non salva la password di root: usa pkexec e il sistema chiede l'autorizzazione quando serve.",
+"Qui scegli la lingua dell'interfaccia, attivi la pulizia rapida della cache utente all'avvio e puoi esportare o importare l'intero profilo delle preferenze di DebUtility in un file TOML per trasferirlo facilmente su altri sistemi. DebUtility non salva la password di root: usa pkexec e il sistema chiede l'autorizzazione quando serve.",
+                "",
+            ),
+        ],
+    ),
+    (
+        "MODALITÀ CLI",
+        &[
+            (
+                "Modalità CLI / headless",
+                "Avvia DebUtility senza interfaccia grafica: è utile su server senza X11/Wayland, negli script e nelle automazioni. Senza argomenti si apre sempre la GUI; con --scan, --clean o --dry-run i comandi vengono gestiti prima dell'avvio della GUI e prima del lock di istanza singola.",
+                "",
+            ),
+            (
+                "--scan e --dry-run",
+                "--scan mostra il riepilogo della scansione sicura (cache, residui APT/Flatpak/Snap, file temporanei e file vuoti) con lo spazio totale recuperabile. --dry-run elenca esattamente cosa verrebbe rimosso senza cancellare nulla.",
+                "Aggiungi --json per ottenere un output strutturato: in quel modo i log superflui non finiscono su stdout.",
+            ),
+            (
+                "--clean --yes",
+                "Esegue la pulizia sicura in modo non interattivo: richiede --yes per evitare cancellazioni accidentali. Senza conferma il programma mostra un avviso e termina con codice 2.",
+                "Le revisioni Snap disabilitate vengono rimosse solo dalla GUI.",
+            ),
+            (
+                "--include e --exclude",
+                "Limita la pulizia alle categorie indicate o esclude alcune categorie dalla selezione predefinita. Gli identificatori sono: user_cache, browser_cache, thumbnails, empty_dirs, empty_files, apt_cache, old_logs, temp, journal, rc_packages e flatpak_unused. Esempio: debutility --clean --yes --json --include=user_cache,empty_dirs.",
+                "Il Pianificatore usa --include con le categorie scelte nella scheda.",
+            ),
+            (
+                "Codici di uscita e JSON",
+                "Il codice 0 indica successo, 1 un errore operativo, 2 argomenti non validi o --yes mancante. Con --json i campi sono mode, timestamp, status, exit_code, selected, total_recoverable_bytes, freed_bytes, freed_human, entries, logs e warnings. Con --clean viene scritto anche lo stato dell'ultima esecuzione in ~/.local/state/debutility, dove lo legge il Pianificatore.",
                 "",
             ),
         ],
@@ -286,7 +346,7 @@ const GUIDE: &[(&str, &[Entry])] = &[
         "AIUTO",
         &[(
             "Guida",
-            "Questa schermata spiega ogni funzione di DebClean. Usa la ricerca per trovare subito l'argomento che ti interessa.",
+            "Questa schermata spiega ogni funzione di DebUtility. Usa la ricerca per trovare subito l'argomento che ti interessa.",
             "",
         )],
     ),
@@ -295,9 +355,16 @@ const GUIDE: &[(&str, &[Entry])] = &[
 
 impl App {
     pub(crate) fn ui_guide(&mut self, ui: &mut egui::Ui) {
-        ui::title(ui, "Guida di DebClean");
+        ui::title(ui, t("Guida di DebUtility"));
         ui::card(ui, |ui| {
-            ui.label(egui::RichText::new(t("DebClean riunisce in un'unica applicazione pulizia, riparazione, monitoraggio e amministrazione del sistema. Quando una funzione richiede i privilegi di amministratore, il sistema mostra una finestra per l'autorizzazione; le operazioni delicate chiedono sempre conferma prima di procedere. Qui sotto trovi la spiegazione di ogni funzione.")).size(17.0));
+            ui.label(
+                egui::RichText::new(format!("DebUtility v{}", crate::APP_VERSION))
+                    .size(17.0)
+                    .strong()
+                    .color(ui::accent_text()),
+            );
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(t("DebUtility riunisce in un'unica applicazione pulizia, riparazione, monitoraggio e amministrazione del sistema. Quando una funzione richiede i privilegi di amministratore, il sistema mostra una finestra per l'autorizzazione; le operazioni delicate chiedono sempre conferma prima di procedere. Qui sotto trovi la spiegazione di ogni funzione.")).size(17.0));
         });
         ui.add_space(8.0);
         ui.horizontal(|ui| {
@@ -321,7 +388,7 @@ impl App {
                 continue;
             }
             ui.add_space(12.0);
-            ui.label(egui::RichText::new(t(*group)).size(14.0).strong().color(ui::TEXT_DIM));
+            ui.label(egui::RichText::new(t(*group)).size(14.0).strong().color(ui::text_dim()));
             ui.add_space(2.0);
             for e in hits {
                 shown += 1;
@@ -334,7 +401,7 @@ impl App {
                                 ui.add_space(4.0);
                                 ui.label(
                                     egui::RichText::new(format!("{}: {}", t("Attenzione"), t(e.2)))
-                                        .color(ui::WARN),
+                                        .color(ui::semantic_text(ui::WARN)),
                                 );
                             }
                         });

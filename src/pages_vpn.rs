@@ -111,7 +111,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui::led(ui, Some(v.active), "");
                     ui.label(egui::RichText::new(&v.name).strong().size(18.0));
-                    ui.label(egui::RichText::new(format!("({})", v.kind)).color(ui::TEXT_DIM));
+                    ui.label(egui::RichText::new(format!("({})", v.kind)).color(ui::text_dim()));
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let name_q = util::shq(&v.name);
@@ -125,7 +125,7 @@ impl App {
                                 self.spawn(ctx, crate::cmd_job("vpn", script, v.kind == "WireGuard"));
                             }
                         } else {
-                            if ui.add(egui::Button::new(t("Connetti")).fill(ui::GOOD)).clicked() {
+                            if ui::primary_button(ui, t("Connetti"), true).clicked() {
                                 let script = if v.kind == "WireGuard" {
                                     format!("wg-quick up {name_q}")
                                 } else {

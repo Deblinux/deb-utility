@@ -70,7 +70,7 @@ impl App {
                             let _ = util::run_shell(&format!("gnome-extensions {action} {}", util::shq(&e.uuid)), false);
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(egui::RichText::new(&e.uuid).size(13.0).color(ui::TEXT_DIM));
+                            ui.label(egui::RichText::new(&e.uuid).size(13.0).color(ui::text_dim()));
                         });
                     });
                 });

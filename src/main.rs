@@ -22,18 +22,23 @@ mod util;
 mod safe_optimize;
 mod pages_appimage;
 mod pages_containers;
+mod pages_devcontainers;
 mod pages_desktop_ext;
 mod pages_sec_audit;
 mod pages_timers;
+mod timers_state;
 mod pages_vpn;
 mod pages_synaptic;
 mod history;
 mod pages_duplicates;
+mod quarantine;
 mod pages_services;
 mod snap;
 mod pages_report;
 mod pages_disk_analyzer;
+mod pages_disk_treemap;
 mod pages_boot;
+mod pages_kernel_boot;
 mod solutions;
 mod pages_menu_editor;
 mod security_hardening;
@@ -41,14 +46,19 @@ mod hardware_health;
 mod app_lifecycle;
 mod pages_themes;
 mod pages_system_editor;
+mod progress;
 use eframe::egui;
-use i18n::t;
+use i18n::{t, tf};
 use hwinfo::{RamModule, Section};
 use pages_admin::{DriverProp, GroupRow, StartEntry};
 use pages_clean::Found;
 use pages_sys::{BigFile, NetStatus, Pkg, ProcRow};
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
+use progress::{Progress, ProgressReporter};
 use std::time::{Duration, Instant};
 #[derive(PartialEq, Clone, Copy)]
 pub enum Page {
@@ -59,6 +69,7 @@ pub enum Page {
     Info,
     Disk,
     DiskAnalyzer,
+    DiskTreemap,
     Procs,
     Apps,
     AppImages,
@@ -83,6 +94,7 @@ pub enum Page {
     History,
     AdvancedCleaner,
     Duplicates,
+    Quarantine,
     Services,
     Snaps,
     Report,
@@ -95,7 +107,12 @@ pub enum Page {
     SystemEditor,
     TelemetryGuard,
     Mounts,
+    DevContainers,
+    KernelBoot,
 }
+
+/// Versione dell'app: fonte unica per GUI, pagine informazioni e CLI.
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const MENU: &[(&str, &[(Page, &str)])] = &[
     ("", &[(Page::Dashboard, "Dashboard")]),
@@ -106,11 +123,13 @@ const MENU: &[(&str, &[(Page, &str)])] = &[
             (Page::SafeOptimize, safe_optimize::TAB_TITLE),
             (Page::AdvancedCleaner, "Residui di sistema"),
             (Page::Duplicates, "File duplicati"),
+            (Page::Quarantine, "Quarantena / Ripristino"),
             (Page::Fixer, "Fixer"),
             (Page::Updates, "Aggiornamenti"),
             (Page::Timers, "Pianificatore"),
             (Page::History, "Storico APT"),
             (Page::Snaps, "Pacchetti Snap"),
+            (Page::DevContainers, "Sviluppo & Container"),
         ],
     ),
     (
@@ -119,6 +138,7 @@ const MENU: &[(&str, &[(Page, &str)])] = &[
             (Page::Info, "Info hardware"),
             (Page::Disk, "Disco"),
             (Page::DiskAnalyzer, "Analizzatore spazio"),
+            (Page::DiskTreemap, "Analizzatore Disco"),
             (Page::Procs, "Processi"),
             (Page::Apps, "App installate"),
             (Page::AppImages, "AppImage"),
@@ -133,6 +153,7 @@ const MENU: &[(&str, &[(Page, &str)])] = &[
         "AMMINISTRATORE",
         &[
             (Page::Kernel, "Kernel, Grub, Recovery"),
+            (Page::KernelBoot, "Kernel & Boot"),
             (Page::Repos, "Repository e driver"),
             (Page::Startup, "Startup"),
             (Page::Boot, "Tempi di avvio"),
@@ -155,7 +176,7 @@ const MENU: &[(&str, &[(Page, &str)])] = &[
             (Page::Shredder, "File shredder"),
             (Page::Log, "Log debug"),
             (Page::Report, "Report diagnostica"),
-            (Page::TelemetryGuard, "Privacy & Telemetry Guard"),
+            (Page::TelemetryGuard, "Privacy & Telemetria"),
             (Page::Settings, "Impostazioni"),
         ],
     ),
@@ -214,6 +235,33 @@ pub enum Msg {
     SafeOptimizeReport(safe_optimize::OptimizeReport),
     DiskDeepScan(pages_disk_analyzer::DeepDiskAnalysis),
     DiskSpaceComparison(pages_disk_analyzer::SpaceComparison),
+    /// Scansione treemap completata (generation evita risultati di scansioni annullate).
+    TreemapScanDone {
+        path: PathBuf,
+        scan: pages_disk_treemap::DirScan,
+        generation: u64,
+    },
+    /// Un file è stato spostato/eliminato: invalida le scansioni che lo contenevano.
+    TreemapInvalidate(PathBuf),
+    TreemapPath(String),
+    /// Snapshot dello stato di avanzamento inviato da un job in background.
+    Progress(Progress),
+    /// Report della scansione Sviluppo & Container.
+    DevScan(pages_devcontainers::Report),
+    /// Avanzamento locale della pagina Sviluppo & Container.
+    DevProgress { fraction: f32, detail: String },
+    /// Report della pagina Kernel & Boot.
+    KernelBootScan(pages_kernel_boot::Report),
+    /// Avanzamento locale della pagina Kernel & Boot.
+    KernelBootProgress { fraction: f32, detail: String },
+    /// Stato reale del timer utente (systemd + ultima esecuzione CLI).
+    TimerStatus(timers_state::TimerStatus),
+    /// Notifica della scheda Pianificatore (`true` = errore).
+    TimerMessage(String, bool),
+    /// Elenco aggiornato dei file in quarantena.
+    QuarantineItems(Vec<quarantine::Item>),
+    /// Esito di un'operazione sulla quarantena (`true` = errore).
+    QuarantineMessage(String, bool),
 }
 
 #[derive(Clone)]
@@ -231,13 +279,36 @@ impl Chan {
 
 pub type Job = Box<dyn FnOnce(&Chan) + Send + 'static>;
 
+/// Etichetta della barra per i comandi eseguiti tramite `cmd_job`.
+fn job_label(key: &'static str) -> &'static str {
+    match key {
+        "upd_apt" => t("Aggiornamento pacchetti APT in corso..."),
+        "upd_flat" => t("Aggiornamento app Flatpak in corso..."),
+        "fixer" => t("Applico la correzione..."),
+        "adv_clean" => t("Pulizia dei residui in corso..."),
+        "history" => t("Operazione APT in corso..."),
+        "quarantine" => t("Operazioni sulla quarantena in corso..."),
+        "services" => t("Operazione sui servizi in corso..."),
+        "boot" => t("Operazione su GRUB e avvio in corso..."),
+        "kernel_boot" => t("Rimozione kernel selezionati in corso..."),
+        "snapshot" => t("Creazione snapshot di sicurezza..."),
+        "mounts" => t("Operazione sui dischi in corso..."),
+        "timers" => t("Configurazione della pianificazione in corso..."),
+        "vpn" => t("Configurazione VPN in corso..."),
+        _ => t("Operazione in corso..."),
+    }
+}
+
 pub fn cmd_job(key: &'static str, script: String, privileged: bool) -> Job {
     Box::new(move |ch: &Chan| {
         let head: String = script.chars().take(90).collect::<String>().replace('\n', " ");
         ch.send(Msg::Log(format!("▶ {head}")));
         ch.send(Msg::Out(key, String::new()));
+        let mut prog = ProgressReporter::start(ch, key, job_label(key));
         if privileged {
-            ch.send(Msg::Live(key, t("Attendo l'autorizzazione di amministratore...").to_string(), false));
+            let wait = t("Attendo l'autorizzazione di amministratore...").to_string();
+            ch.send(Msg::Live(key, wait.clone(), false));
+            prog.status(wait);
         }
         let mut all = String::new();
         let ok = util::run_stream(&script, privileged, |line, commit| {
@@ -245,20 +316,24 @@ pub fn cmd_job(key: &'static str, script: String, privileged: bool) -> Job {
                 all.push_str(line);
                 all.push('\n');
             }
+            prog.track_line(line);
             ch.send(Msg::Live(key, line.to_string(), commit));
         });
         let mark = if ok { "✔" } else { "✘" };
         ch.send(Msg::Log(format!("{mark} {}", util::tail(all.trim(), 3).replace('\n', " | "))));
+        prog.finish(if ok { t("Completato") } else { t("Operazione terminata con errori") });
     })
 }
 
 pub fn fix_job(cmd: String) -> Job {
     Box::new(move |ch: &Chan| {
         ch.send(Msg::Log("▶ Applico la correzione...".into()));
+        let mut prog = ProgressReporter::start(ch, "fixer", t("Applico la correzione..."));
         let (mut ok, mut out) = util::run_shell(&cmd, true);
         let low_first = out.to_lowercase();
         if !ok && (low_first.contains("grub-pc") || low_first.contains("install_devices")) {
             ch.send(Msg::Log("▶ Rilevo il disco per configurare grub-pc senza terminale...".into()));
+            prog.status(t("Rilevamento del disco per GRUB..."));
             let grub_fix = "export DEBIAN_FRONTEND=noninteractive; \
                 ROOT_SRC=\"$(findmnt -no SOURCE / 2>/dev/null | head -n1)\"; \
                 PK=\"$(lsblk -no pkname \"$ROOT_SRC\" 2>/dev/null | head -n1)\"; \
@@ -286,7 +361,40 @@ pub fn fix_job(cmd: String) -> Job {
         };
         ch.send(Msg::Out("fixer", out.clone()));
         ch.send(Msg::Log(format!("{head}: {}", util::tail(out.trim(), 4).replace('\n', " | "))));
+        prog.status(t("Verifica dello stato del sistema..."));
         ch.send(Msg::Checks(health::run_checks()));
+        prog.finish(head);
+    })
+}
+
+/// Job di pulizia con avanzamento passo per passo, riutilizzato dalle schede.
+pub fn clean_and_scan_job(id: &'static str, kinds: Vec<cleaner::Kind>, with_checks: bool) -> Job {
+    Box::new(move |ch: &Chan| {
+        let mut prog = ProgressReporter::start(ch, id, t("Pulizia in corso..."));
+        for line in cleaner::clean_all_with_progress(&kinds, |cur, total, label| {
+            prog.step(cur, total, label)
+        }) {
+            ch.send(Msg::Log(line));
+        }
+        ch.send(Msg::Sizes(cleaner::scan_with(|cur, total, label| {
+            prog.step(cur, total, label)
+        })));
+        if with_checks {
+            prog.status(t("Verifica dello stato del sistema..."));
+            ch.send(Msg::Checks(health::run_checks()));
+        }
+        prog.finish(t("Pulizia completata"));
+    })
+}
+
+/// Job di sola analisi spazio con avanzamento visibile.
+pub fn scan_sizes_job(id: &'static str, label: &'static str) -> Job {
+    Box::new(move |ch: &Chan| {
+        let mut prog = ProgressReporter::start(ch, id, label);
+        ch.send(Msg::Sizes(cleaner::scan_with(|cur, total, name| {
+            prog.step(cur, total, crate::i18n::tr(name))
+        })));
+        prog.finish(t("Analisi completata"));
     })
 }
 
@@ -302,6 +410,9 @@ pub struct App {
     log_pause: bool,
     log_frozen: String,
     busy: bool,
+    /// Avanzamento dei job in corso, indicizzato dall'id usato dal job.
+    /// Più operazioni parallele (es. APT e Flatpak) hanno una barra ciascuna.
+    progress: HashMap<&'static str, Progress>,
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
     last_refresh: Instant,
@@ -379,6 +490,8 @@ pub struct App {
     dup_min_kb: u64,
     dup_skip_hidden: bool,
     dup_groups: Vec<pages_duplicates::DuplicateGroup>,
+    quarantine_items: Vec<quarantine::Item>,
+    quarantine_msg: Option<(String, bool)>,
     apt_history: Vec<history::AptTransaction>,
     services_list: Vec<pages_services::SystemdService>,
     svc_filter: String,
@@ -411,6 +524,30 @@ pub struct App {
     disk_deep: pages_disk_analyzer::DeepDiskAnalysis,
     disk_before_free: Option<u64>,
     disk_comparison: Option<pages_disk_analyzer::SpaceComparison>,
+    // Stato della treemap: una scansione per cartella, con navigazione breadcrumb.
+    treemap_input: String,
+    treemap_current: PathBuf,
+    treemap_scans: HashMap<PathBuf, pages_disk_treemap::DirScan>,
+    treemap_selected: Option<PathBuf>,
+    treemap_cancel: Arc<AtomicBool>,
+    treemap_generation: u64,
+    treemap_pending_scan: Option<PathBuf>,
+    /// Stato della sezione Sviluppo & Container (scansione e selezioni).
+    dev_report: pages_devcontainers::Report,
+    dev_progress: Option<(f32, String)>,
+    /// Stato della sezione Kernel & Boot.
+    kb_report: pages_kernel_boot::Report,
+    kb_progress: Option<(f32, String)>,
+    /// Strumenti di snapshot rilevati e preferenza dell'utente.
+    snapshot_timeshift: bool,
+    snapshot_snapper: bool,
+    snapshot_enabled: bool,
+    /// Stato della pagina Pianificatore.
+    timer_freq: usize,
+    timer_includes: Vec<String>,
+    timer_status: Option<timers_state::TimerStatus>,
+    timer_msg: Option<(String, bool)>,
+    timer_loaded: bool,
 }
 
 impl App {
@@ -422,6 +559,10 @@ impl App {
         let home = util::home();
         i18n::set_lang(cfg.lang);
         let quick = cfg.quick_clean;
+        let timer_schedule = timers_state::Schedule::load().unwrap_or_default();
+        // Rilevamento degli strumenti di snapshot: nessun errore se assenti.
+        let snapshot_timeshift = util::run_shell("command -v timeshift >/dev/null 2>&1", false).0;
+        let snapshot_snapper = util::run_shell("command -v snapper >/dev/null 2>&1", false).0;
         let mut app = App {
             page: Page::Dashboard,
             sub: 0,
@@ -434,6 +575,7 @@ impl App {
             log_pause: false,
             log_frozen: String::new(),
             busy: false,
+            progress: HashMap::new(),
             tx,
             rx,
             last_refresh: Instant::now(),
@@ -479,7 +621,7 @@ impl App {
             startup: Vec::new(),
             groups: Vec::new(),
             backup_src: format!("{home}/Documenti"),
-            backup_dst: format!("{home}/Backup-DebClean"),
+            backup_dst: format!("{home}/Backup-DebUtility"),
             snap_name: String::new(),
             shred_path: String::new(),
             shred_passes: 3,
@@ -511,11 +653,13 @@ impl App {
             dup_min_kb: 100,
             dup_skip_hidden: true,
             dup_groups: Vec::new(),
+            quarantine_items: quarantine::load().unwrap_or_default(),
+            quarantine_msg: None,
             apt_history: Vec::new(),
             services_list: Vec::new(),
             svc_filter: String::new(),
             report_opts: pages_report::ReportOptions::default(),
-            report_path: format!("{home}/debclean-report.html"),
+            report_path: format!("{home}/debutility-report.html"),
             disk_analyzer_path: home.clone(),
             disk_analyzer_items: Vec::new(),
             boot_summary: String::new(),
@@ -543,18 +687,52 @@ impl App {
             disk_deep: pages_disk_analyzer::DeepDiskAnalysis::default(),
             disk_before_free: None,
             disk_comparison: None,
+            treemap_input: home.clone(),
+            treemap_current: PathBuf::from(&home),
+            treemap_scans: HashMap::new(),
+            treemap_selected: None,
+            treemap_cancel: Arc::new(AtomicBool::new(false)),
+            treemap_generation: 0,
+            treemap_pending_scan: None,
+            dev_report: pages_devcontainers::Report::default(),
+            dev_progress: None,
+            kb_report: pages_kernel_boot::Report::default(),
+            kb_progress: None,
+            snapshot_timeshift,
+            snapshot_snapper,
+            snapshot_enabled: false,
+            timer_freq: timer_schedule.frequency_index(),
+            timer_includes: timer_schedule.include,
+            timer_status: None,
+            timer_msg: None,
+            timer_loaded: false,
         };
         app.system_editor.load_file("/etc/fstab");
         let ctx = cc.egui_ctx.clone();
         app.spawn(&ctx, move |ch| {
+            let mut prog = ProgressReporter::start(&ch, "startup", t("Avvio e controllo iniziale..."));
+            // Scadenza automatica: vale anche se l'utente non apre mai la scheda.
+            match quarantine::purge_expired() {
+                Ok(n) if n > 0 => {
+                    ch.send(Msg::QuarantineItems(quarantine::load().unwrap_or_default()));
+                    ch.send(Msg::Log(tf("Eliminati {} file scaduti dalla quarantena.", &[&n])));
+                }
+                Ok(_) => {}
+                Err(e) => ch.send(Msg::Log(tf("Errore nella scadenza della quarantena: {}", &[&e]))),
+            }
             if quick {
-                for l in cleaner::clean_all(&[cleaner::Kind::UserCache]) {
+                for l in cleaner::clean_all_with_progress(&[cleaner::Kind::UserCache], |c, t, l| {
+                    prog.step(c, t, l)
+                }) {
                     ch.send(Msg::Log(l));
                 }
             }
-            ch.send(Msg::Sizes(cleaner::scan()));
+            ch.send(Msg::Sizes(cleaner::scan_with(|c, t, l| prog.step(c, t, crate::i18n::tr(l)))));
+            prog.status(t("Verifica dello stato del sistema..."));
             ch.send(Msg::Checks(health::run_checks()));
+            prog.status(t("Test della connessione di rete..."));
             ch.send(Msg::Net(pages_sys::net_test()));
+            prog.finish(t("Controlli iniziali completati"));
         });
         app.load_icewm_menu();
         app
@@ -573,12 +751,7 @@ impl App {
                 let kinds: Vec<cleaner::Kind> =
                     self.items.iter().filter(|i| i.selected).map(|i| i.kind).collect();
                 let has_browser_data = kinds.contains(&cleaner::Kind::BrowserData);
-                let job: Job = Box::new(move |ch: &Chan| {
-                    for l in cleaner::clean_all(&kinds) {
-                        ch.send(Msg::Log(l));
-                    }
-                    ch.send(Msg::Sizes(cleaner::scan()));
-                });
+                let job = clean_and_scan_job("cleaner", kinds, false);
                 if has_browser_data {
                     self.confirm = Some((
                         t("Attenzione: hai selezionato 'Cronologia e cookie dei browser'. Verranno rimossi cronologia, cookie/sessioni e, su Firefox, anche i preferiti/segnalibri (le password salvate non vengono toccate). Vuoi continuare?")
@@ -598,7 +771,7 @@ impl App {
         ui.add_space(12.0);
 
         ui::card(ui, |ui| {
-            ui.label(egui::RichText::new(t("Demoni di telemetria e diagnostica rilevati")).strong().size(16.0).color(ui::ACCENT));
+            ui.label(egui::RichText::new(t("Demoni di telemetria e diagnostica rilevati")).strong().size(16.0).color(ui::accent_text()));
             ui.add_space(6.0);
 
          if self.telemetry_items.is_empty() {
@@ -609,7 +782,7 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.vertical(|ui| {
                             ui.label(egui::RichText::new(&item.name).strong().size(14.0));
-                            ui.label(egui::RichText::new(&item.description).color(ui::TEXT_DIM));
+                            ui.label(egui::RichText::new(&item.description).color(ui::text_dim()));
                         });
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.add_enabled(!self.busy, egui::Button::new(t("Disattiva e Blocca"))).clicked() {
@@ -631,7 +804,7 @@ impl App {
         ui.add_space(12.0);
 
         ui::card(ui, |ui| {
-            ui.label(egui::RichText::new(t("Blocco Rapido Domini di Telemetria (Hosts)")).strong().size(16.0).color(ui::ACCENT));
+            ui.label(egui::RichText::new(t("Blocco Rapido Domini di Telemetria (Hosts)")).strong().size(16.0).color(ui::accent_text()));
             ui.label(t("Impedisci al sistema di contattare server noti di telemetria di grandi produttori bloccandoli a livello locale."));
             ui.add_space(8.0);
 
@@ -668,6 +841,9 @@ impl App {
             return;
         }
         self.busy = true;
+        // Una nuova operazione sostituisce le barre (ancora visibili) della
+        // precedente. Nessun job può girare su questo canale mentre `busy`.
+        self.progress.clear();
         let ch = Chan { tx: self.tx.clone(), ctx: ctx.clone() };
         std::thread::spawn(move || {
             // Se il job va in panic l'interfaccia non deve restare bloccata su "occupato"
@@ -706,6 +882,141 @@ impl App {
         }
     }
 
+    /// Toggle condiviso dalle schermate di pulizia profonda.
+    /// È attivo solo se `timeshift` o `snapper` è installato.
+    pub(crate) fn snapshot_toggle(&mut self, ui: &mut egui::Ui) {
+        let timeshift = self.snapshot_timeshift;
+        let snapper = self.snapshot_snapper;
+        let available = timeshift || snapper;
+        let mut enabled = self.snapshot_enabled;
+        ui::card(ui, |ui| {
+            ui.horizontal(|ui| {
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(28.0, 28.0), egui::Sense::hover());
+                ui::icon_badge(ui.painter(), rect, ui::GOOD, "⛨", 15.0);
+                ui.vertical(|ui| {
+                    ui.add_enabled(
+                        available,
+                        egui::Checkbox::new(
+                            &mut enabled,
+                            egui::RichText::new(t("Crea snapshot di sicurezza prima di procedere")).strong(),
+                        ),
+                    );
+                    let tool = if timeshift {
+                        "Timeshift"
+                    } else if snapper {
+                        "Snapper"
+                    } else {
+                        ""
+                    };
+                    let detail = if available {
+                        t("Verrà creato uno snapshot prima di ogni rimozione; se la creazione fallisce la pulizia viene annullata.")
+                    } else {
+                        t("Nessuno strumento di snapshot rilevato: installa Timeshift o Snapper per usare questa opzione.")
+                    };
+                    ui.label(
+                        egui::RichText::new(if available {
+                            format!("{tool} · {detail}")
+                        } else {
+                            detail.to_string()
+                        })
+                        .size(12.5)
+                        .color(ui::text_dim()),
+                    );
+                });
+            });
+        });
+        self.snapshot_enabled = enabled;
+        ui.add_space(8.0);
+    }
+
+    /// Esegue lo snapshot (se richiesto) e solo in caso di successo avvia il job.
+    pub(crate) fn with_snapshot(&self, follow: Job) -> Job {
+        let enabled = self.snapshot_enabled && (self.snapshot_timeshift || self.snapshot_snapper);
+        let timeshift = self.snapshot_timeshift;
+        Box::new(move |ch: &Chan| {
+            if !enabled {
+                follow(ch);
+                return;
+            }
+            let (tool, script) = if timeshift {
+                (
+                    "Timeshift",
+                    format!("timeshift --create --comments {}", util::shq(t("DebUtility pre-pulizia"))),
+                )
+            } else {
+                ("Snapper", format!("snapper create -d {}", util::shq(t("DebUtility pre-pulizia"))))
+            };
+            ch.send(Msg::Log(tf(
+                "▶ {}: creazione snapshot di sicurezza...",
+                &[&tool],
+            )));
+            let mut prog = ProgressReporter::start(
+                ch,
+                "snapshot",
+                tf("Snapshot di sicurezza ({})...", &[&tool]),
+            );
+            prog.status(t("Attendo l'autorizzazione di amministratore..."));
+            let mut out = String::new();
+            let ok = util::run_stream(&script, true, |line, commit| {
+                if commit {
+                    out.push_str(line);
+                    out.push('\n');
+                    if !line.trim().is_empty() {
+                        ch.send(Msg::Log(line.to_string()));
+                    }
+                }
+                prog.track_line(line);
+            });
+            if !ok {
+                let tail = util::tail(out.trim(), 3).replace('\n', " | ");
+                ch.send(Msg::Log(tf(
+                    "✘ Snapshot non riuscito ({}): pulizia annullata.",
+                    &[&tail],
+                )));
+                prog.finish(t("Snapshot non riuscito: operazione annullata"));
+                return;
+            }
+            ch.send(Msg::Log(tf(
+                "✔ Snapshot di sicurezza creato con {}.",
+                &[&tool],
+            )));
+            prog.finish(t("Snapshot creato"));
+            follow(ch);
+        })
+    }
+
+    /// Avvia un job di pulizia applicando lo snapshot se selezionato.
+    pub(crate) fn spawn_snapshot(&mut self, ctx: &egui::Context, follow: Job) {
+        let job = self.with_snapshot(follow);
+        self.spawn(ctx, job);
+    }
+
+    /// Mette in coda un job di pulizia con conferma e snapshot opzionale.
+    pub(crate) fn confirm_snapshot(&mut self, text: String, follow: Job) {
+        let job = self.with_snapshot(follow);
+        self.confirm = Some((text, job));
+    }
+
+    /// Variante di [`App::run_btn`] che applica lo snapshot opzionale.
+    pub(crate) fn run_btn_snapshot(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        label: &str,
+        key: &'static str,
+        script: &str,
+        privileged: bool,
+        confirm: Option<&str>,
+    ) {
+        let job = self.with_snapshot(cmd_job(key, script.to_string(), privileged));
+        if ui.add_enabled(!self.busy, egui::Button::new(label)).clicked() {
+            match confirm {
+                Some(t) => self.confirm = Some((t.to_string(), job)),
+                None => self.spawn(ctx, job),
+            }
+        }
+    }
+
     pub fn show_out(&self, ui: &mut egui::Ui, key: &str, height: f32) {
         let mut text = self.out.get(key).cloned().unwrap_or_default();
         if let Some(cur) = self.live.get(key) {
@@ -720,6 +1031,78 @@ impl App {
             text.push_str(cur);
         }
         ui::output_box_follow(ui, &text, height);
+    }
+
+    /// Barre di avanzamento complete (una per ogni job parallelo attivo).
+    /// Viene chiamata in cima al pannello centrale: resta visibile da qualsiasi
+    /// scheda mentre gira un'operazione lunga.
+    pub(crate) fn progress_ui(&self, ui: &mut egui::Ui) {
+        let mut active: Vec<&Progress> = self.progress.values().filter(|p| p.visible()).collect();
+        if active.is_empty() {
+            return;
+        }
+        active.sort_by_key(|p| p.started);
+        for p in active {
+            ui::card_tinted(ui, ui::ACCENT, |ui| {
+                ui.horizontal(|ui| {
+                    let (badge, _) = ui.allocate_exact_size(egui::vec2(26.0, 26.0), egui::Sense::hover());
+                    ui::icon_badge(ui.painter(), badge, ui::ACCENT, "⟳", 16.0);
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new(&p.label).strong().size(16.0));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if let Some(pct) = p.percent() {
+                            ui.label(egui::RichText::new(format!("{pct}%")).strong().size(17.0).color(ui::accent_text()));
+                        }
+                        let secs = p.elapsed().as_secs();
+                        ui.label(egui::RichText::new(format!("{}s", secs)).color(ui::text_dim()).size(12.0));
+                    });
+                });
+                ui.add_space(4.0);
+                let width = (ui.available_width() - 4.0).max(120.0);
+                let bar = ui::progress_bar(p.fraction.unwrap_or(0.0))
+                    .desired_width(width)
+                    .animate(true);
+                let bar = if p.fraction.is_some() {
+                    bar.show_percentage()
+                } else {
+                    bar.text(t("In corso..."))
+                };
+                ui.add(bar);
+                if !p.detail.is_empty() {
+                    ui.add_space(3.0);
+                    ui.label(egui::RichText::new(p.detail.as_str()).color(ui::text_dim()).size(12.5));
+                }
+            });
+            ui.add_space(7.0);
+        }
+    }
+
+    /// Versione compatta nella barra di stato in basso.
+    /// Restituisce true se ha disegnato una barra (e lo spinner non serve).
+    pub(crate) fn progress_status_ui(&self, ui: &mut egui::Ui) -> bool {
+        let active: Vec<&Progress> = self.progress.values().filter(|p| p.visible()).collect();
+        if active.is_empty() {
+            return false;
+        }
+        let labels = active
+            .iter()
+            .map(|p| p.label.as_str())
+            .collect::<Vec<_>>()
+            .join(" + ");
+        let fraction = active.iter().find_map(|p| p.fraction);
+        let width = (ui.available_width() * 0.22).clamp(140.0, 300.0);
+        let bar = ui::progress_bar(fraction.unwrap_or(0.0))
+            .desired_width(width)
+            .desired_height(12.0)
+            .animate(true);
+        let bar = if fraction.is_some() {
+            bar.show_percentage()
+        } else {
+            bar.text(t("In corso..."))
+        };
+        ui.add(bar);
+        ui.label(egui::RichText::new(labels).color(ui::text_dim()).size(12.0));
+        true
     }
 
     fn enter(&mut self, ctx: &egui::Context, p: Page) {
@@ -751,8 +1134,27 @@ impl App {
                 if self.disk_analyzer_items.is_empty() {
                     let p = self.disk_analyzer_path.clone();
                     self.spawn(ctx, move |ch| {
+                        let mut prog = ProgressReporter::start(
+                            &ch,
+                            "disk_analyzer",
+                            t("Scansione spazio disco in corso..."),
+                        );
                         ch.send(Msg::Log("▶ Scansione spazio disco in corso...".into()));
+                        let items = pages_disk_analyzer::scan_directory_with(&p, |i, name| {
+                            prog.status(format!("{name} — {i} elementi"))
+                        });
+                        ch.send(Msg::DiskAnalyzerItems(items));
+                        prog.finish(t("Scansione completata"));
                     });
+                }
+            }
+            Page::DiskTreemap => {
+                let p = self
+                    .treemap_pending_scan
+                    .take()
+                    .unwrap_or_else(|| self.treemap_current.clone());
+                if !self.treemap_scans.contains_key(&p) {
+                    self.treemap_scan(ctx, p);
                 }
             }
             Page::Updates => self.load_updates_cache(ctx),
@@ -762,13 +1164,38 @@ impl App {
                     Ok(h) => self.apt_history = h,
                     Err(e) => self.log.push_str(&format!("Errore caricamento history APT: {e}\n")),
                 }
-            }     
+            }
+            Page::Quarantine => {
+                let _ = quarantine::purge_expired();
+                self.refresh_quarantine();
+            }
             Page::SystemEditor => {
                 if self.system_editor.content.is_empty() {
                     self.system_editor.load_file("/etc/fstab");
                 }
             }  
             Page::Mounts => self.load_mounts(ctx),
+            Page::DevContainers => {
+                if self.dev_report.categories.is_empty() {
+                    self.dev_scan(ctx);
+                }
+            }
+            Page::KernelBoot => {
+                if self.kb_report.kernels.is_empty() && self.kb_report.total == 0 {
+                    self.kb_scan(ctx);
+                }
+            }
+            Page::Timers => {
+                // Ricarica la configurazione dal disco e lo stato da systemd.
+                match timers_state::Schedule::load() {
+                    Ok(s) => {
+                        self.timer_freq = s.frequency_index();
+                        self.timer_includes = s.include;
+                    }
+                    Err(e) => self.timer_msg = Some((e, true)),
+                }
+                self.timer_loaded = false;
+            }
             _ => {}
         }
     }
@@ -782,7 +1209,7 @@ impl App {
         ui::card(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(t("Spazio recuperabile stimato:")).size(18.0));
-                ui.label(egui::RichText::new(cleaner::fmt_bytes(total)).size(22.0).strong().color(ui::ACCENT));
+                ui.label(egui::RichText::new(cleaner::fmt_bytes(total)).size(22.0).strong().color(ui::accent_text()));
             });
         });
         ui.add_space(8.0);
@@ -791,10 +1218,10 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut it.selected, egui::RichText::new(t(it.name)).strong().size(18.0));
                     if let Some(s) = it.size {
-                        ui.label(egui::RichText::new(cleaner::fmt_bytes(s)).strong().color(ui::ACCENT));
+                        ui.label(egui::RichText::new(cleaner::fmt_bytes(s)).strong().color(ui::accent_text()));
                     }
                 });
-                ui.label(egui::RichText::new(t(it.desc)).color(ui::TEXT_DIM));
+                ui.label(egui::RichText::new(t(it.desc)).color(ui::text_dim()));
                 ui.add_space(6.0);
             }
         });
@@ -803,23 +1230,26 @@ impl App {
             if ui::primary_button(ui, t("Pulisci selezionati"), !self.busy).clicked() {
                 let kinds: Vec<cleaner::Kind> =
                     self.items.iter().filter(|i| i.selected).map(|i| i.kind).collect();
-                self.spawn(ctx, move |ch| {
-                    for l in cleaner::clean_all(&kinds) {
-                        ch.send(Msg::Log(l));
-                    }
-                    ch.send(Msg::Sizes(cleaner::scan()));
-                });
+                let job = clean_and_scan_job("cleaner", kinds, false);
+                self.spawn_snapshot(ctx, job);
             }
             if ui.add_enabled(!self.busy, egui::Button::new(t("Analizza"))).clicked() {
-                self.spawn(ctx, |ch| ch.send(Msg::Sizes(cleaner::scan())));
+                self.spawn(ctx, scan_sizes_job("cleaner", t("Analisi spazio in corso...")));
             }
             
             if ui.add_enabled(!self.busy, egui::Button::new(t("Ottimizza database SQLite browser"))).clicked() {
                 self.spawn(ctx, |ch| {
+                    let mut prog = ProgressReporter::start(
+                        &ch,
+                        "cleaner",
+                        t("Ottimizzazione database browser in corso..."),
+                    );
                     ch.send(Msg::Log("▶ Avvio ottimizzazione database SQLite dei browser...".into()));
                     for line in cleaner::optimize_browser_databases() {
+                        prog.status(line.clone());
                         ch.send(Msg::Log(line));
                     }
+                    prog.finish(t("Ottimizzazione completata"));
                 });
             }
             
@@ -850,7 +1280,34 @@ impl App {
                         self.log.drain(..cut);
                     }
                 }
-                Msg::Busy(b) => self.busy = b,
+                Msg::Busy(b) => {
+                    self.busy = b;
+                    if !b {
+                        // Anche i job che non chiamano `finish` devono chiudere
+                        // la barra: la UI la mostra per pochi secondi e la nasconde.
+                        if self.page == Page::Timers {
+                            self.timer_loaded = false;
+                        }
+                        for p in self.progress.values_mut() {
+                            p.done = true;
+                            p.fraction = Some(1.0);
+                            p.finished = Some(Instant::now());
+                        }
+                        self.dev_progress = None;
+                        self.kb_progress = None;
+                    }
+                }
+                Msg::Progress(p) => {
+                    self.progress.insert(p.id, p);
+                }
+                Msg::DevScan(report) => self.dev_report = report,
+                Msg::DevProgress { fraction, detail } => {
+                    self.dev_progress = Some((fraction, detail));
+                }
+                Msg::KernelBootScan(report) => self.kb_report = report,
+                Msg::KernelBootProgress { fraction, detail } => {
+                    self.kb_progress = Some((fraction, detail));
+                }
                 Msg::Sizes(s) => {
                     for (it, sz) in self.items.iter_mut().zip(s) {
                         it.size = sz;
@@ -976,6 +1433,27 @@ impl App {
                 Msg::SafeOptimizeReport(rep) => self.safe_report = Some(rep),
                 Msg::DiskDeepScan(deep) => self.disk_deep = deep,
                 Msg::DiskSpaceComparison(comp) => self.disk_comparison = Some(comp),
+                Msg::TreemapPath(path) => self.treemap_input = path,
+                Msg::TreemapScanDone { path, scan, generation } => {
+                    if generation == self.treemap_generation {
+                        self.treemap_scans.insert(path.clone(), scan);
+                        self.treemap_current = path;
+                        self.treemap_selected = None;
+                    }
+                }
+                Msg::TreemapInvalidate(path) => {
+                    // La cartella modificata e tutti i suoi antenati hanno
+                    // dimensioni obsolete: vengono ricalcolate alla prossima visita.
+                    self.treemap_scans
+                        .retain(|p, _| !p.starts_with(&path) && !path.starts_with(p));
+                    self.treemap_selected = None;
+                    let cur = self.treemap_current.clone();
+                    if cur.starts_with(&path) || path.starts_with(&cur) {
+                        // `drain` non ha il contesto egui: la scansione viene
+                        // avviata al prossimo frame, dove `ctx` è disponibile.
+                        self.treemap_pending_scan = Some(cur);
+                    }
+                }
 
         
         Msg::SystemEditorSaved(res) => {
@@ -990,6 +1468,19 @@ impl App {
                             self.system_editor.status_msg = e;
                         }
                     }
+                }
+                Msg::TimerStatus(status) => {
+                    self.timer_status = Some(status);
+                    self.timer_loaded = true;
+                }
+                Msg::TimerMessage(msg, is_error) => {
+                    self.timer_msg = Some((msg.clone(), is_error));
+                    self.log.push_str(&format!("{} {}\n", if is_error { "✘" } else { "✔" }, msg));
+                }
+                Msg::QuarantineItems(items) => self.quarantine_items = items,
+                Msg::QuarantineMessage(msg, is_error) => {
+                    self.quarantine_msg = Some((msg.clone(), is_error));
+                    self.log.push_str(&format!("{} {}\n", if is_error { "✘" } else { "✔" }, msg));
                 }
            }
         }
@@ -1036,11 +1527,11 @@ impl App {
             for tx in &self.apt_history {
                 ui::card(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(&tx.start_date).strong().color(ui::ACCENT).size(16.0));
+                        ui.label(egui::RichText::new(&tx.start_date).strong().color(ui::accent_text()).size(16.0));
                         if !tx.end_date.is_empty() {
                             ui.label(
                                 egui::RichText::new(format!("({}: {})", t("Completato"), tx.end_date))
-                                    .color(ui::TEXT_DIM),
+                                    .color(ui::text_dim()),
                             );
                         }
 
@@ -1050,7 +1541,7 @@ impl App {
                                     .add_enabled(
                                         !self.busy,
                                         egui::Button::new(
-                                            egui::RichText::new(t("Annulla operazione")).color(ui::WARN),
+                                            egui::RichText::new(t("Annulla operazione")).color(ui::semantic_text(ui::WARN)),
                                         ),
                                     )
                                     .clicked()
@@ -1065,25 +1556,25 @@ impl App {
                     ui.label(
                         egui::RichText::new(format!("{} {}", t("Comando:"), tx.command_line))
                             .monospace()
-                            .color(egui::Color32::WHITE),
+                            .color(ui::text_primary()),
                     );
                     ui.add_space(6.0);
 
                     if !tx.installed.is_empty() {
                         ui.horizontal_wrapped(|ui| {
-                            ui.colored_label(ui::GOOD, t("Installati:"));
+                            ui.colored_label(ui::semantic_text(ui::GOOD), t("Installati:"));
                             ui.label(tx.installed.join(", "));
                         });
                     }
                     if !tx.upgraded.is_empty() {
                         ui.horizontal_wrapped(|ui| {
-                            ui.colored_label(ui::WARN, t("Aggiornati:"));
+                            ui.colored_label(ui::semantic_text(ui::WARN), t("Aggiornati:"));
                             ui.label(tx.upgraded.join(", "));
                         });
                     }
                     if !tx.removed.is_empty() {
                         ui.horizontal_wrapped(|ui| {
-                            ui.colored_label(ui::BAD, t("Rimossi:"));
+                            ui.colored_label(ui::semantic_text(ui::BAD), t("Rimossi:"));
                             ui.label(tx.removed.join(", "));
                         });
                     }
@@ -1112,18 +1603,30 @@ impl App {
             ui,
             t("Rimuovi configurazioni residue (pacchetti RC), backup dimenticati (.dpkg-bak, .pacsave), runtime Flatpak inutilizzati, vecchie revisioni Snap disabilitate e cartelle orfane in ~/.config."),
         );
+        self.snapshot_toggle(ui);
 
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             if ui.add_enabled(!self.busy, egui::Button::new(t("Scansiona tutto"))).clicked() {
                 self.spawn(ctx, move |ch| {
+                    let mut prog = ProgressReporter::start(
+                        &ch,
+                        "adv_clean",
+                        t("Scansione approfondita dei residui in corso..."),
+                    );
                     ch.send(Msg::Log("▶ Scansione approfondita residui e file orfani in corso...".into()));
+                    prog.step(1, 5, t("Pacchetti residui (rc)..."));
                     ch.send(Msg::RcPkgs(cleaner::scan_rc_pkgs()));
+                    prog.step(2, 5, t("Runtime Flatpak inutilizzati..."));
                     ch.send(Msg::FlatpakUnused(cleaner::scan_flatpak_unused()));
+                    prog.step(3, 5, t("Backup di configurazione dimenticati..."));
                     ch.send(Msg::ConfigBackups(cleaner::scan_config_backups()));
+                    prog.step(4, 5, t("Revisioni Snap disabilitate..."));
                     ch.send(Msg::DisabledSnaps(cleaner::scan_disabled_snaps()));
+                    prog.step(5, 5, t("Configurazioni orfane in ~/.config..."));
                     ch.send(Msg::OrphanConfigs(cleaner::scan_orphan_configs()));
                     ch.send(Msg::Log("✔ Scansione residui completata.".into()));
+                    prog.finish(t("Scansione residui completata"));
                 });
             }
             if self.busy {
@@ -1134,7 +1637,7 @@ impl App {
         ui.add_space(12.0);
 
         ui::card(ui, |ui| {
-            ui.label(egui::RichText::new(t("Configurazioni residue (Pacchetti RC)")).strong().size(16.0).color(ui::ACCENT));
+            ui.label(egui::RichText::new(t("Configurazioni residue (Pacchetti RC)")).strong().size(16.0).color(ui::accent_text()));
             ui.add_space(4.0);
             if self.rc_pkgs.is_empty() {
                 ui.label(t("Nessun pacchetto residuo trovato. (Premi 'Scansiona tutto' per avviare)"));
@@ -1148,7 +1651,7 @@ impl App {
                     let args_str = targets.iter().map(|s| util::shq(s)).collect::<Vec<_>>().join(" ");
                     let script = format!("sudo apt-get purge -y {args_str}");
                     let job = cmd_job("adv_clean", script, true);
-                    self.spawn(ctx, job);
+                    self.spawn_snapshot(ctx, job);
                 }
             }
         });
@@ -1156,7 +1659,7 @@ impl App {
         ui.add_space(10.0);
 
         ui::card(ui, |ui| {
-            ui.label(egui::RichText::new(t("Backup di configurazione dimenticati (/etc)")).strong().size(16.0).color(ui::ACCENT));
+            ui.label(egui::RichText::new(t("Backup di configurazione dimenticati (/etc)")).strong().size(16.0).color(ui::accent_text()));
             ui.add_space(4.0);
             if self.config_backups.is_empty() {
                 ui.label(t("Nessun file .dpkg-bak, .dpkg-old o .pacsave trovato."));
@@ -1167,16 +1670,38 @@ impl App {
                     }
                 });
                 ui.add_space(8.0);
-                if ui.add_enabled(!self.busy, egui::Button::new(t("Elimina backup selezionati"))).clicked() {
-                    let targets: Vec<String> = self.config_backups
+                if ui.add_enabled(!self.busy, egui::Button::new(t("Sposta in quarantena i backup selezionati"))).clicked() {
+                    let targets: Vec<std::path::PathBuf> = self.config_backups
                         .iter()
                         .filter(|(_, sel)| *sel)
-                        .map(|(p, _)| util::shq(&p.to_string_lossy()))
+                        .map(|(p, _)| p.clone())
                         .collect();
                     if !targets.is_empty() {
-                        let script = format!("sudo rm -f {}", targets.join(" "));
-                        let job = cmd_job("adv_clean", script, true);
-                        self.spawn(ctx, job);
+                        let count = targets.len();
+                        let text = tf(
+                            "Spostare {} backup di configurazione in quarantena? Potrai ripristinarli entro {} giorni.",
+                            &[&count, &quarantine::RETENTION_DAYS],
+                        );
+                        let job: Job = Box::new(move |ch: &Chan| {
+                            let prog = ProgressReporter::start(
+                                &ch,
+                                "quarantine",
+                                t("Spostamento backup in quarantena in corso..."),
+                            );
+                            match quarantine::quarantine_files(&targets, "Residui di sistema", true) {
+                                Ok((moved, failed)) => {
+                                    ch.send(Msg::QuarantineMessage(
+                                        tf("Spostati {} file in quarantena, {} non spostati.", &[&moved, &failed]),
+                                        failed > 0,
+                                    ));
+                                }
+                                Err(e) => ch.send(Msg::QuarantineMessage(e, true)),
+                            }
+                            ch.send(Msg::QuarantineItems(quarantine::load().unwrap_or_default()));
+                            ch.send(Msg::ConfigBackups(cleaner::scan_config_backups()));
+                            prog.finish(t("Spostamento completato"));
+                        });
+                        self.confirm_snapshot(text, job);
                     }
                 }
             }
@@ -1190,10 +1715,17 @@ impl App {
             if ui::primary_button(ui, t("Crea Kit di Migrazione"), !self.busy).clicked() {
                 let dest = std::path::PathBuf::from(crate::util::home()).join("Scrivania");
                 self.spawn(ctx, move |ch| {
+                    let mut prog = ProgressReporter::start(
+                        &ch,
+                        "adv_clean",
+                        t("Creazione del Kit di Migrazione in corso..."),
+                    );
                     ch.send(Msg::Log("▶ Creazione Kit di Migrazione in corso...".into()));
                     for line in crate::migration::create_migration_kit(&dest) {
+                        prog.status(line.clone());
                         ch.send(Msg::Log(line));
                     }
+                    prog.finish(t("Kit di Migrazione creato"));
                 });
             }
         });
@@ -1201,7 +1733,7 @@ impl App {
         ui.add_space(10.0);
 
         ui::card(ui, |ui| {
-            ui.label(egui::RichText::new(t("Runtime e App Flatpak Inutilizzati")).strong().size(16.0).color(ui::ACCENT));
+            ui.label(egui::RichText::new(t("Runtime e App Flatpak Inutilizzati")).strong().size(16.0).color(ui::accent_text()));
             ui.add_space(4.0);
             if self.flatpak_unused.is_empty() {
                 ui.label(t("Nessun componente Flatpak orfano trovato."));
@@ -1227,7 +1759,7 @@ impl App {
                             ch.send(Msg::Log("✘ Rimozione Flatpak non riuscita o annullata.".into()));
                         }
                     });
-                    self.spawn(ctx, job);
+                    self.spawn_snapshot(ctx, job);
                 }
             }
         });
@@ -1235,7 +1767,7 @@ impl App {
         ui.add_space(10.0);
 
         ui::card(ui, |ui| {
-            ui.label(egui::RichText::new(t("Vecchie revisioni Snap disabilitate")).strong().size(16.0).color(ui::ACCENT));
+            ui.label(egui::RichText::new(t("Vecchie revisioni Snap disabilitate")).strong().size(16.0).color(ui::accent_text()));
             ui.add_space(4.0);
             if self.disabled_snaps.is_empty() {
                 ui.label(t("Nessuna revisione Snap disabilitata trovata."));
@@ -1256,7 +1788,7 @@ impl App {
                             ch.send(Msg::Log("✘ Pulizia revisioni Snap non riuscita (autorizzazione negata o errore di snap).".into()));
                         }
                     });
-                    self.spawn(ctx, job);
+                    self.spawn_snapshot(ctx, job);
                 }
             }
         });
@@ -1264,7 +1796,7 @@ impl App {
         ui.add_space(10.0);
 
         ui::card(ui, |ui| {
-            ui.label(egui::RichText::new(t("Cartelle di configurazione utente orfane (~/.config)")).strong().size(16.0).color(ui::ACCENT));
+            ui.label(egui::RichText::new(t("Cartelle di configurazione utente orfane (~/.config)")).strong().size(16.0).color(ui::accent_text()));
             ui.add_space(4.0);
             if self.orphan_configs.is_empty() {
                 ui.label(t("Nessuna cartella orfana rilevata in ~/.config."));
@@ -1286,10 +1818,10 @@ impl App {
                             let mark = if ok { "✔" } else { "⚠" };
                             ch.send(Msg::Log(format!("{mark} Rimozione configurazioni orfane terminata{}.", if ok { "" } else { " (alcune non rimosse)" })));
                         });
-                        self.confirm = Some((
+                        self.confirm_snapshot(
                             format!("Eliminare definitivamente {} cartelle di configurazione in ~/.config? Le impostazioni dei programmi andranno perse.", n_targets),
                             job,
-                        ));
+                        );
                     }
                 }
             }
@@ -1337,14 +1869,14 @@ impl App {
                                 );
                                 ui.label(
                                     egui::RichText::new(format!("[{}]", app.publisher))
-                                        .color(ui::TEXT_DIM),
+                                        .color(ui::text_dim()),
                                 );
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     if ui
                                         .add_enabled(
                                             !self.busy,
                                             egui::Button::new(
-                                                egui::RichText::new(t("Rimuovi")).color(ui::BAD),
+                                                egui::RichText::new(t("Rimuovi")).color(ui::semantic_text(ui::BAD)),
                                             ),
                                         )
                                         .clicked()
@@ -1366,7 +1898,7 @@ impl App {
                     }
                 }
                 Err(e) => {
-                    ui.colored_label(ui::BAD, t(e));
+                    ui.colored_label(ui::semantic_text(ui::BAD), t(e));
                     ui.label(t("Assicurati che snapd sia installato e attivo sul sistema."));
                 }
             }
@@ -1597,23 +2129,31 @@ let avail_w = ui.available_width();
                         egui::RichText::new(t("Perché è lento adesso?"))
                             .size(20.0)
                             .strong()
-                            .color(ui::ACCENT),
+                            .color(ui::accent_text()),
                     );
                     ui.label(
                         egui::RichText::new(t("Diagnostica in 1 clic su CPU, memoria/swap, spazio disco, processi e servizi."))
-                            .color(ui::TEXT_DIM),
+                            .color(ui::text_dim()),
                     );
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui::primary_button(ui, t("Diagnostica ora"), !self.busy).clicked() {
                         self.info.refresh();
                         self.spawn(ctx, move |ch| {
+                            let mut prog = ProgressReporter::start(
+                                &ch,
+                                "slow_diag",
+                                t("Diagnostica rallentamenti in corso..."),
+                            );
                             ch.send(Msg::Log("▶ Eseguo diagnostica rallentamenti in corso...".into()));
                             let mut snap = info::SysInfo::new();
+                            prog.status(t("Lettura dei contatori di sistema..."));
                             snap.refresh();
+                            prog.status(t("Analisi dei processi e delle risorse..."));
                             let findings = run_slow_diag(&snap);
                             ch.send(Msg::SlowDiag(findings));
                             ch.send(Msg::Log("✔ Diagnostica rallentamenti completata.".into()));
+                            prog.finish(t("Diagnostica completata"));
                         });
                     }
                     if self.busy {
@@ -1626,7 +2166,7 @@ let avail_w = ui.available_width();
                 ui.add_space(6.0);
                 ui.label(
                     egui::RichText::new(t("Premi «Diagnostica ora» per analizzare cosa sta impegnando il sistema in questo momento."))
-                        .color(ui::TEXT_DIM),
+                        .color(ui::text_dim()),
                 );
                 return;
             }
@@ -1642,7 +2182,7 @@ let avail_w = ui.available_width();
                     ui.colored_label(col, egui::RichText::new(format!("[{badge}] {}", f.area)).strong());
                     ui.vertical(|ui| {
                         ui.label(egui::RichText::new(&f.summary).strong());
-                        ui.label(egui::RichText::new(&f.detail).color(ui::TEXT_DIM));
+                        ui.label(egui::RichText::new(&f.detail).color(ui::text_dim()));
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.add_enabled(!self.busy, egui::Button::new(t(f.action_label))).clicked() {
@@ -1689,13 +2229,22 @@ let avail_w = ui.available_width();
                     let opts = self.report_opts.clone();
                     let path = self.report_path.trim().to_string();
                     self.spawn(ctx, move |ch| {
+                        let prog = ProgressReporter::start(
+                            &ch,
+                            "report",
+                            t("Generazione del report diagnostico in corso..."),
+                        );
                         ch.send(Msg::Log("▶ Generazione del report diagnostico in corso...".into()));
                         match pages_report::generate_html_report(&opts, &path) {
                             Ok(saved) => {
                                 ch.send(Msg::Log(format!("✔ Report salvato in: {saved}")));
                                 let _ = std::process::Command::new("xdg-open").arg(&saved).spawn();
+                                prog.finish(t("Report completato"));
                             }
-                            Err(e) => ch.send(Msg::Log(format!("✘ {}", t(e)))),
+                            Err(e) => {
+                                ch.send(Msg::Log(format!("✘ {}", t(e))));
+                                prog.finish(t("Generazione report non riuscita"));
+                            }
                         }
                     });
                 }
@@ -1705,6 +2254,171 @@ let avail_w = ui.available_width();
                 }
             });
         });
+    }
+
+    // ---------- Analizzatore Disco (treemap) -------------------------------------------------
+
+    /// Avvia una nuova scansione in background; la precedente viene annullata.
+    fn treemap_scan(&mut self, ctx: &egui::Context, path: PathBuf) {
+        self.treemap_cancel.store(true, AtomicOrdering::Relaxed);
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.treemap_cancel = cancel.clone();
+        self.treemap_generation = self.treemap_generation.wrapping_add(1);
+        let generation = self.treemap_generation;
+        self.treemap_current = path.clone();
+        self.treemap_selected = None;
+
+        self.bg(ctx, move |ch| {
+            let mut prog = ProgressReporter::start(
+                &ch,
+                "disk_treemap",
+                t("Scansione Treemap in corso..."),
+            );
+            ch.send(Msg::Log(tf(
+                "▶ {} {}",
+                &[&t("Scansione treemap di"), &path.display()],
+            )));
+            let scan = pages_disk_treemap::scan_directory_recursive(&path, cancel.as_ref(), &mut |n| {
+                prog.status(tf("{} elementi esaminati", &[&n]))
+            });
+            if cancel.load(AtomicOrdering::Relaxed) {
+                prog.finish(t("Scansione annullata"));
+                return;
+            }
+            ch.send(Msg::TreemapScanDone {
+                path: path.clone(),
+                scan,
+                generation,
+            });
+            ch.send(Msg::Log(format!("✔ {}", t("Treemap aggiornata."))));
+            prog.finish(t("Treemap pronta"));
+        });
+    }
+
+    /// Naviga dentro una cartella: usa la cache se già scansionata.
+    fn treemap_navigate(&mut self, ctx: &egui::Context, path: PathBuf) {
+        if self.treemap_scans.contains_key(&path) {
+            self.treemap_cancel.store(true, AtomicOrdering::Relaxed);
+            self.treemap_generation = self.treemap_generation.wrapping_add(1);
+            self.treemap_current = path;
+            self.treemap_selected = None;
+        } else {
+            self.treemap_scan(ctx, path);
+        }
+    }
+
+    fn treemap_parent(&self) -> Option<PathBuf> {
+        self.treemap_current.parent().map(|p| p.to_path_buf())
+    }
+
+    fn treemap_crumbs(&self) -> Vec<(String, PathBuf)> {
+        let home = PathBuf::from(util::home());
+        pages_disk_treemap::breadcrumbs(&self.treemap_current)
+            .into_iter()
+            .map(|p| (pages_disk_treemap::short_name(&p, &home), p))
+            .collect()
+    }
+
+    fn treemap_open_in_manager(&self, ctx: &egui::Context, path: PathBuf, is_dir: bool) {
+        let target = if is_dir {
+            path.clone()
+        } else {
+            path.parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| path.clone())
+        };
+        self.bg(ctx, move |ch| {
+            match std::process::Command::new("xdg-open").arg(&target).spawn() {
+                Ok(_) => ch.send(Msg::Log(format!("✔ {}", t("Cartella aperta nel file manager.")))),
+                Err(e) => ch.send(Msg::Log(format!("✘ {}: {e}", t("Impossibile aprire il file manager")))),
+            }
+        });
+    }
+
+    fn treemap_ask_trash(&mut self, path: PathBuf, is_dir: bool) {
+        let parent = path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("/"));
+        let what = if is_dir { t("cartella") } else { t("file") };
+        let msg = format!(
+            "{}\n{}: {}\n{}",
+            t("Spostare nel cestino?"),
+            what,
+            path.display(),
+            t("Potrai ripristinarlo dal cestino del file manager.")
+        );
+        self.confirm = Some((
+            msg,
+            Box::new(move |ch| {
+                let mut res = std::process::Command::new("gio")
+                    .arg("trash")
+                    .arg(&path)
+                    .output();
+                if res.as_ref().map(|o| !o.status.success()).unwrap_or(true) {
+                    res = std::process::Command::new("trash-put").arg(&path).output();
+                }
+                match res {
+                    Ok(o) if o.status.success() => {
+                        ch.send(Msg::Log(format!("✔ {} {}", t("Spostato nel cestino:"), path.display())));
+                        ch.send(Msg::TreemapInvalidate(parent));
+                    }
+                    Ok(o) => {
+                        let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+                        ch.send(Msg::Log(format!(
+                            "✘ {}: {}",
+                            t("Spostamento nel cestino non riuscito"),
+                            if err.is_empty() { t("errore sconosciuto") } else { err.as_str() }
+                        )));
+                    }
+                    Err(e) => ch.send(Msg::Log(format!(
+                        "✘ {}: {e}",
+                        t("Spostamento nel cestino non riuscito")
+                    ))),
+                }
+            }),
+        ));
+    }
+
+    fn treemap_ask_delete(&mut self, path: PathBuf, is_dir: bool) {
+        let parent = path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("/"));
+        let what = if is_dir { t("cartella") } else { t("file") };
+        let msg = format!(
+            "{}\n{}: {}\n{}",
+            t("Eliminare definitivamente?"),
+            what,
+            path.display(),
+            t("ATTENZIONE: l'operazione non è reversibile.")
+        );
+        self.confirm = Some((
+            msg,
+            Box::new(move |ch| {
+                let mut cmd = std::process::Command::new("rm");
+                if is_dir {
+                    cmd.arg("-rf");
+                } else {
+                    cmd.arg("-f");
+                }
+                match cmd.arg(&path).output() {
+                    Ok(o) if o.status.success() => {
+                        ch.send(Msg::Log(format!("✔ {} {}", t("Eliminato:"), path.display())));
+                        ch.send(Msg::TreemapInvalidate(parent));
+                    }
+                    Ok(o) => {
+                        let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+                        ch.send(Msg::Log(format!(
+                            "✘ {}: {}",
+                            t("Eliminazione non riuscita"),
+                            if err.is_empty() { t("errore sconosciuto") } else { err.as_str() }
+                        )));
+                    }
+                    Err(e) => ch.send(Msg::Log(format!("✘ {}: {e}", t("Eliminazione non riuscita")))),
+                }
+            }),
+        ));
     }
 
     fn ui_disk_analyzer(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -1743,10 +2457,18 @@ let avail_w = ui.available_width();
                 if ui::primary_button(ui, t("Scansiona"), !self.busy).clicked() {
                     let path = self.disk_analyzer_path.clone();
                     self.spawn(ctx, move |ch| {
+                        let mut prog = ProgressReporter::start(
+                            &ch,
+                            "disk_analyzer",
+                            t("Scansione disco in corso..."),
+                        );
                         ch.send(Msg::Log(format!("▶ Scansione di {path} in corso...")));
-                        let items = pages_disk_analyzer::scan_directory(&path);
+                        let items = pages_disk_analyzer::scan_directory_with(&path, |i, name| {
+                            prog.status(format!("{name} — {i} elementi"))
+                        });
                         ch.send(Msg::DiskAnalyzerItems(items));
                         ch.send(Msg::Log("✔ Scansione completata.".into()));
+                        prog.finish(t("Scansione completata"));
                     });
                 }
 
@@ -1754,10 +2476,18 @@ if ui.add_enabled(!self.busy, egui::Button::new(t("Analisi approfondita"))).clic
                     let path = self.disk_analyzer_path.clone();
                     self.disk_before_free = pages_disk_analyzer::available_bytes_for_path(&path);
                     self.spawn(ctx, move |ch| {
+                        let mut prog = ProgressReporter::start(
+                            &ch,
+                            "disk_analyzer",
+                            t("Analisi approfondita del disco in corso..."),
+                        );
                         ch.send(Msg::Log(format!("▶ Analisi cache e file grandi recenti in {path}...")));
-                        let deep = pages_disk_analyzer::scan_deep_analysis(&path, 100, 14);
+                        let deep = pages_disk_analyzer::scan_deep_analysis_with(&path, 100, 14, |name| {
+                            prog.status(format!("Analisi di {name}"))
+                        });
                         ch.send(Msg::DiskDeepScan(deep));
                         ch.send(Msg::Log("✔ Analisi approfondita completata.".into()));
+                        prog.finish(t("Analisi approfondita completata"));
                     });
                 }
 
@@ -1774,7 +2504,7 @@ if ui.add_enabled(!self.busy, egui::Button::new(t("Analisi approfondita"))).clic
                 ui.label(t("Nessun risultato. Inserisci un percorso e premi 'Scansiona'."));
             } else {
                 let total_size: u64 = self.disk_analyzer_items.iter().map(|i| i.size).sum();
-                ui.label(egui::RichText::new(format!("Spazio totale rilevato: {}", pages_disk_analyzer::fmt_bytes(total_size))).strong().color(ui::ACCENT));
+                ui.label(egui::RichText::new(format!("Spazio totale rilevato: {}", pages_disk_analyzer::fmt_bytes(total_size))).strong().color(ui::accent_text()));
                 ui.add_space(8.0);
                 let items = self.disk_analyzer_items.clone();
                 egui::ScrollArea::vertical().max_height(500.0).show(ui, |ui| {
@@ -1786,15 +2516,23 @@ if ui.add_enabled(!self.busy, egui::Button::new(t("Analisi approfondita"))).clic
                                 self.disk_analyzer_path = item.path.clone();
                                 let path = item.path.clone();
                                 self.spawn(ctx, move |ch| {
-                                    let items = pages_disk_analyzer::scan_directory(&path);
+                                    let mut prog = ProgressReporter::start(
+                                        &ch,
+                                        "disk_analyzer",
+                                        t("Scansione cartella in corso..."),
+                                    );
+                                    let items = pages_disk_analyzer::scan_directory_with(&path, |i, name| {
+                                        prog.status(format!("{name} — {i} elementi"))
+                                    });
                                     ch.send(Msg::DiskAnalyzerItems(items));
+                                    prog.finish(t("Scansione completata"));
                                 });
                             }
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 ui.label(
                                     egui::RichText::new(pages_disk_analyzer::fmt_bytes(item.size))
                                         .strong()
-                                        .color(ui::TEXT_DIM),
+                                        .color(ui::text_dim()),
                                 );
                             });
                         });
@@ -1807,7 +2545,7 @@ if ui.add_enabled(!self.busy, egui::Button::new(t("Analisi approfondita"))).clic
 ui.add_space(10.0);
 
         ui::card(ui, |ui| {
-            ui.label(egui::RichText::new(t("Cartelle di cache più pesanti")).strong().size(16.0).color(ui::ACCENT));
+            ui.label(egui::RichText::new(t("Cartelle di cache più pesanti")).strong().size(16.0).color(ui::accent_text()));
             ui.add_space(6.0);
             if self.disk_deep.heavy_caches.is_empty() {
                 ui.label(t("Nessuna cartella di cache analizzata. Premi 'Analisi approfondita'."));
@@ -1817,11 +2555,11 @@ ui.add_space(10.0);
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(&c.label).strong());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(egui::RichText::new(pages_disk_analyzer::fmt_bytes(c.size)).strong().color(ui::ACCENT));
+                            ui.label(egui::RichText::new(pages_disk_analyzer::fmt_bytes(c.size)).strong().color(ui::accent_text()));
                         });
                     });
                     ui.add(egui::ProgressBar::new((c.size as f32 / max_sz).clamp(0.0, 1.0)));
-                    ui.label(egui::RichText::new(&c.path).color(ui::TEXT_DIM));
+                    ui.label(egui::RichText::new(&c.path).color(ui::text_dim()));
                     ui.add_space(6.0);
                 }
             }
@@ -1830,7 +2568,7 @@ ui.add_space(10.0);
         ui.add_space(10.0);
 
         ui::card(ui, |ui| {
-            ui.label(egui::RichText::new(t("File grandi recenti")).strong().size(16.0).color(ui::ACCENT));
+            ui.label(egui::RichText::new(t("File grandi recenti")).strong().size(16.0).color(ui::accent_text()));
             ui.add_space(6.0);
             if self.disk_deep.recent_big_files.is_empty() {
                 ui.label(t("Nessun file grande recente trovato (ultimi 14 giorni, >= 100 MB)."));
@@ -1838,12 +2576,12 @@ ui.add_space(10.0);
                 for f in &self.disk_deep.recent_big_files {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(&f.name).strong());
-                        ui.label(egui::RichText::new(format!("({}d)", f.days_ago)).color(ui::TEXT_DIM));
+                        ui.label(egui::RichText::new(format!("({}d)", f.days_ago)).color(ui::text_dim()));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(egui::RichText::new(pages_disk_analyzer::fmt_bytes(f.size)).strong().color(ui::WARN));
+                            ui.label(egui::RichText::new(pages_disk_analyzer::fmt_bytes(f.size)).strong().color(ui::semantic_text(ui::WARN)));
                         });
                     });
-                    ui.label(egui::RichText::new(&f.path).color(ui::TEXT_DIM));
+                    ui.label(egui::RichText::new(&f.path).color(ui::text_dim()));
                     ui.add_space(4.0);
                 }
             }
@@ -1853,7 +2591,7 @@ ui.add_space(10.0);
 
         ui::card(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(t("Confronto spazio Prima / Dopo")).strong().size(16.0).color(ui::ACCENT));
+                ui.label(egui::RichText::new(t("Confronto spazio Prima / Dopo")).strong().size(16.0).color(ui::accent_text()));
                 if let Some(before) = self.disk_before_free {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.add_enabled(!self.busy, egui::Button::new(t("Misura spazio Dopo"))).clicked() {
@@ -1888,6 +2626,356 @@ ui.add_space(10.0);
         
     }
 
+    fn ui_disk_treemap(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        use pages_disk_treemap as tm;
+
+        ui::title(ui, t("Analizzatore Disco"));
+        ui::hint(
+            ui,
+            t("Scansiona una cartella e esplora lo spazio con una mappa di rettangoli proporzionali: clic su una cartella per entrare, tasto destro per aprire o rimuovere elementi."),
+        );
+
+        if let Some(path) = self.treemap_pending_scan.take() {
+            self.treemap_scan(ctx, path);
+        }
+
+        let scanning = self
+            .progress
+            .get("disk_treemap")
+            .map(|p| !p.done && p.visible())
+            .unwrap_or(false);
+        let scan = self.treemap_scans.get(&self.treemap_current).cloned();
+
+        ui::card(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(egui::RichText::new(t("Cartella:")).strong());
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.treemap_input).desired_width(420.0),
+                );
+                if ui.button(t("Sfoglia...")).clicked() {
+                    let ctx2 = ctx.clone();
+                    let tx2 = self.tx.clone();
+                    std::thread::spawn(move || {
+                        if let Ok(out) = std::process::Command::new("zenity")
+                            .args(["--file-selection", "--directory"])
+                            .output()
+                        {
+                            if out.status.success() {
+                                if let Ok(dir) = String::from_utf8(out.stdout) {
+                                    let dir = dir.trim().to_string();
+                                    if !dir.is_empty() {
+                                        let _ = tx2.send(Msg::TreemapPath(dir));
+                                        ctx2.request_repaint();
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+                if ui::primary_button(ui, t("Scansiona"), !scanning).clicked() {
+                    let path = PathBuf::from(&self.treemap_input);
+                    self.treemap_scan(ctx, path);
+                }
+                if ui
+                    .add_enabled(!scanning, egui::Button::new(t("Aggiorna")))
+                    .clicked()
+                {
+                    let path = self.treemap_current.clone();
+                    self.treemap_scan(ctx, path);
+                }
+                let can_go_up = self.treemap_parent().is_some();
+                if ui
+                    .add_enabled(can_go_up, egui::Button::new(t("Torna su")))
+                    .clicked()
+                {
+                    if let Some(parent) = self.treemap_parent() {
+                        self.treemap_navigate(ctx, parent);
+                    }
+                }
+                if scanning {
+                    ui.spinner();
+                }
+            });
+
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(egui::RichText::new(t("Percorso:")).color(ui::text_dim()));
+                for (i, (label, path)) in self.treemap_crumbs().into_iter().enumerate() {
+                    if i > 0 {
+                        ui.label(egui::RichText::new("›").color(ui::text_dim()));
+                    }
+                    if ui.link(&label).clicked() {
+                        self.treemap_navigate(ctx, path);
+                    }
+                }
+            });
+
+            if scanning {
+                if let Some(p) = self.progress.get("disk_treemap").cloned() {
+                    ui.add_space(8.0);
+                    ui.add(
+                        ui::progress_bar(p.fraction.unwrap_or(0.0))
+                            .animate(true)
+                            .text(p.detail.clone()),
+                    );
+                }
+            }
+        });
+
+        ui.add_space(10.0);
+
+        ui::card(ui, |ui| {
+            if let Some(s) = &scan {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} {}",
+                            t("Totale:"),
+                            tm::format_size(s.total_bytes)
+                        ))
+                        .strong()
+                        .color(ui::accent_text()),
+                    );
+                    ui.label(
+                        egui::RichText::new(tf(
+                            "{} file · {} cartelle · {} errori",
+                            &[&s.files, &s.dirs, &s.errors]
+                        ))
+                        .color(ui::text_dim()),
+                    );
+                });
+            } else if scanning {
+                ui.label(t("Scansione in corso..."));
+            } else {
+                ui.label(t("Nessuna scansione: scegli una cartella e premi 'Scansiona'."));
+            }
+            ui.add_space(8.0);
+
+            ui.horizontal_wrapped(|ui| {
+                for cat in tm::DiskCategory::ALL {
+                    let (square, _) =
+                        ui.allocate_exact_size(egui::vec2(13.0, 13.0), egui::Sense::hover());
+                    ui.painter()
+                        .rect_filled(square, 3.0, ui::treemap_fill(*cat, false));
+                    ui.label(
+                        egui::RichText::new(t(cat.label())).size(13.0).color(ui::text_dim()),
+                    );
+                    ui.add_space(4.0);
+                }
+            });
+            ui.add_space(8.0);
+
+            let (rect, _) = ui.allocate_exact_size(
+                egui::vec2(ui.available_width(), 430.0),
+                egui::Sense::hover(),
+            );
+            let painter = ui.painter_at(rect);
+            painter.rect_filled(rect, 10.0, ui::card_bg(ctx));
+            painter.rect_stroke(rect, 10.0, egui::Stroke::new(1.0_f32, ui::card_border(ctx)));
+
+            if let Some(s) = &scan {
+                let area = egui::Rect::from_min_max(
+                    egui::Pos2::new(rect.left() + 10.0, rect.top() + 10.0),
+                    egui::Pos2::new(rect.right() - 10.0, rect.bottom() - 10.0),
+                );
+                let sizes: Vec<u64> = s.entries.iter().map(|e| e.size).collect();
+                let cells = tm::squarify(
+                    &sizes,
+                    (area.min.x, area.min.y, area.width(), area.height()),
+                    3.0,
+                );
+                let total = s.total_bytes.max(1);
+
+                for cell in cells {
+                    let entry = &s.entries[cell.index];
+                    let r = egui::Rect::from_min_size(
+                        egui::Pos2::new(cell.x, cell.y),
+                        egui::vec2(cell.w, cell.h),
+                    );
+                    if r.width() < 3.0 || r.height() < 3.0 {
+                        continue;
+                    }
+                    let id = ui.id().with(("disk_treemap_item", entry.path.clone()));
+                    let resp = ui.interact(r, id, egui::Sense::click());
+                    let selected = self.treemap_selected.as_ref() == Some(&entry.path);
+                    let hovered = resp.hovered();
+
+                    painter.rect_filled(
+                        r,
+                        6.0,
+                        ui::treemap_fill(entry.category, hovered || selected),
+                    );
+                    painter.rect_stroke(r, 6.0, ui::treemap_stroke(entry.category, selected));
+
+                    if r.width() > 76.0 && r.height() > 38.0 {
+                        let max_chars = ((r.width() - 14.0) / 7.6).max(4.0) as usize;
+                        let name: String = entry.name.chars().take(max_chars).collect();
+                        let text_col = ui::text_primary();
+                        let mut pos = egui::Pos2::new(r.left() + 7.0, r.top() + 6.0);
+                        painter.text(
+                            pos,
+                            egui::Align2::LEFT_TOP,
+                            name,
+                            egui::FontId::proportional(13.0),
+                            text_col,
+                        );
+                        pos.y += 17.0;
+                        painter.text(
+                            pos,
+                            egui::Align2::LEFT_TOP,
+                            tm::format_size(entry.size),
+                            egui::FontId::proportional(11.5),
+                            ui::alpha(text_col, 205),
+                        );
+                    }
+
+                    let pct = entry.size as f64 * 100.0 / total as f64;
+                    resp.clone().on_hover_ui_at_pointer(|tip| {
+                        tip.set_max_width(420.0);
+                        tip.label(egui::RichText::new(&entry.name).strong());
+                        tip.label(
+                            egui::RichText::new(entry.path.display().to_string())
+                                .size(12.0)
+                                .color(ui::text_dim()),
+                        );
+                        tip.label(format!("{} {}", t("Dimensione:"), tm::format_exact(entry.size)));
+                        tip.label(format!("{pct:.2}% {}", t("del totale")));
+                        tip.label(if entry.is_dir {
+                            t("Cartella — clic per entrare")
+                        } else {
+                            t("File — clic per selezionare")
+                        });
+                    });
+
+                    if resp.clicked() {
+                        if entry.is_dir {
+                            self.treemap_navigate(ctx, entry.path.clone());
+                        } else {
+                            self.treemap_selected = Some(entry.path.clone());
+                        }
+                    }
+                    if resp.secondary_clicked() {
+                        self.treemap_selected = Some(entry.path.clone());
+                    }
+
+                    let path = entry.path.clone();
+                    let is_dir = entry.is_dir;
+                    resp.context_menu(|menu| {
+                        if menu.button(t("Apri nel file manager")).clicked() {
+                            menu.close_menu();
+                            self.treemap_open_in_manager(ctx, path.clone(), is_dir);
+                        }
+                        if menu.button(t("Sposta nel cestino")).clicked() {
+                            menu.close_menu();
+                            self.treemap_ask_trash(path.clone(), is_dir);
+                        }
+                        if menu.button(t("Elimina definitivamente")).clicked() {
+                            menu.close_menu();
+                            self.treemap_ask_delete(path.clone(), is_dir);
+                        }
+                    });
+                }
+            } else {
+                painter.text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    if scanning {
+                        t("Scansione in corso...")
+                    } else {
+                        t("Nessun dato da mostrare")
+                    },
+                    egui::FontId::proportional(18.0),
+                    ui::text_dim(),
+                );
+            }
+        });
+
+        ui.add_space(10.0);
+        ui::card(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                if let Some(sel) = self.treemap_selected.clone() {
+                    ui.label(egui::RichText::new(t("Selezionato:")).strong());
+                    ui.label(
+                        egui::RichText::new(sel.display().to_string()).color(ui::text_dim()),
+                    );
+                    let is_dir = sel.is_dir();
+                    if ui.button(t("Apri nel file manager")).clicked() {
+                        self.treemap_open_in_manager(ctx, sel.clone(), is_dir);
+                    }
+                    if ui.button(t("Sposta nel cestino")).clicked() {
+                        self.treemap_ask_trash(sel.clone(), is_dir);
+                    }
+                    if ui.button(t("Elimina definitivamente")).clicked() {
+                        self.treemap_ask_delete(sel.clone(), is_dir);
+                    }
+                } else {
+                    ui.label(
+                        egui::RichText::new(t("Nessun elemento selezionato: clic su un rettangolo."))
+                            .color(ui::text_dim()),
+                    );
+                }
+            });
+        });
+
+        ui.add_space(10.0);
+        ui::card(ui, |ui| {
+            ui.label(
+                egui::RichText::new(t("Top 20 file più pesanti"))
+                    .strong()
+                    .size(18.0)
+                    .color(ui::accent_text()),
+            );
+            ui.label(
+                egui::RichText::new(t("File dell'intero sottoalbero, ordinati per dimensione."))
+                    .size(13.0)
+                    .color(ui::text_dim()),
+            );
+            ui.add_space(6.0);
+            if let Some(s) = &scan {
+                if s.top_files.is_empty() {
+                    ui.label(t("Nessun file trovato in questa cartella."));
+                } else {
+                    egui::ScrollArea::vertical()
+                        .max_height(320.0)
+                        .show(ui, |ui| {
+                            for (i, f) in s.top_files.iter().enumerate() {
+                                ui.horizontal(|ui| {
+                                    ui.label(format!("{:>2}.", i + 1));
+                                    let (square, _) = ui.allocate_exact_size(
+                                        egui::vec2(10.0, 10.0),
+                                        egui::Sense::hover(),
+                                    );
+                                    ui.painter()
+                                        .rect_filled(square, 2.0, ui::treemap_fill(f.category, false));
+                                    if ui.link(&f.name).clicked() {
+                                        self.treemap_selected = Some(f.path.clone());
+                                    }
+                                    ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            ui.label(
+                                                egui::RichText::new(tm::format_size(f.size))
+                                                    .strong()
+                                                    .color(ui::accent_text()),
+                                            );
+                                        },
+                                    );
+                                });
+                                ui.label(
+                                    egui::RichText::new(f.path.display().to_string())
+                                        .size(12.0)
+                                        .color(ui::text_dim()),
+                                );
+                                ui.add_space(3.0);
+                            }
+                        });
+                }
+            } else {
+                ui.label(t("In attesa della scansione..."));
+            }
+        });
+    }
+
     fn ui_system_editor(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui::title(ui, t("Gestore File di Sistema"));
         ui::hint(
@@ -1911,7 +2999,7 @@ ui.add_space(10.0);
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(format!("File in modifica: {}", self.system_editor.selected_path)).strong().color(ui::ACCENT));
+                ui.label(egui::RichText::new(format!("File in modifica: {}", self.system_editor.selected_path)).strong().color(ui::accent_text()));
             });
 
             ui.add_space(6.0);
@@ -1945,7 +3033,7 @@ ui.add_space(10.0);
 
             if !self.system_editor.status_msg.is_empty() {
                 ui.add_space(6.0);
-                ui.label(egui::RichText::new(&self.system_editor.status_msg).color(ui::TEXT_DIM));
+                ui.label(egui::RichText::new(&self.system_editor.status_msg).color(ui::text_dim()));
             }
         });
     }
@@ -1960,7 +3048,7 @@ fn ui_safe_optimize(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
 
         ui::card(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(t("1. Cosa farà (anteprima sicura)")).strong().size(16.0).color(ui::ACCENT));
+                ui.label(egui::RichText::new(t("1. Cosa farà (anteprima sicura)")).strong().size(16.0).color(ui::accent_text()));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.add_enabled(!self.busy, egui::Button::new(t("Aggiorna anteprima"))).clicked() {
                         self.safe_preview = safe_optimize::preview_steps();
@@ -1979,12 +3067,12 @@ fn ui_safe_optimize(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(t(step.title)).strong());
                             if let Some(sz) = step.size {
-                                ui.label(egui::RichText::new(cleaner::fmt_bytes(sz)).color(ui::ACCENT));
+                                ui.label(egui::RichText::new(cleaner::fmt_bytes(sz)).color(ui::accent_text()));
                             }
                         });
-                        ui.label(egui::RichText::new(t(step.detail)).color(ui::TEXT_DIM));
+                        ui.label(egui::RichText::new(t(step.detail)).color(ui::text_dim()));
                         if let Some(note) = step.note {
-                            ui.colored_label(ui::WARN, t(note));
+                            ui.colored_label(ui::semantic_text(ui::WARN), t(note));
                         }
                     });
                 });
@@ -1999,7 +3087,7 @@ fn ui_safe_optimize(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                     cleaner::fmt_bytes(safe_optimize::estimated_bytes())
                 ))
                 .strong()
-                .color(ui::ACCENT),
+                .color(ui::accent_text()),
             );
         });
 
@@ -2009,14 +3097,23 @@ fn ui_safe_optimize(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 self.safe_preview = safe_optimize::preview_steps();
                 self.safe_report = None;
                 self.spawn(ctx, |ch| {
+                    let mut prog = ProgressReporter::start(
+                        &ch,
+                        "safe_optimize",
+                        t("Ottimizzazione sicura in corso..."),
+                    );
                     ch.send(Msg::Log("▶ Avvio ottimizzazione sicura per principianti...".into()));
-                    let rep = safe_optimize::run_safe_optimize_report();
+                    let rep = safe_optimize::run_safe_optimize_report_with(|cur, total, phase| {
+                        prog.step(cur, total, phase)
+                    });
                     for line in rep.clone().into_log_lines() {
                         ch.send(Msg::Log(line));
                     }
                     ch.send(Msg::SafeOptimizeReport(rep));
-                    ch.send(Msg::Sizes(cleaner::scan()));
+                    prog.status(t("Verifica dello stato del sistema..."));
+                    ch.send(Msg::Sizes(cleaner::scan_with(|c, t, l| prog.step(c, t, crate::i18n::tr(l)))));
                     ch.send(Msg::Checks(health::run_checks()));
+                    prog.finish(t("Ottimizzazione completata"));
                 });
             }
             if self.busy {
@@ -2033,7 +3130,7 @@ fn draw_safe_optimize_summary(&self, ui: &mut egui::Ui) {
                 egui::RichText::new(t("2. Cosa ha fatto"))
                     .strong()
                     .size(16.0)
-                    .color(ui::ACCENT),
+                    .color(ui::accent_text()),
             );
             ui.add_space(6.0);
 
@@ -2041,7 +3138,7 @@ fn draw_safe_optimize_summary(&self, ui: &mut egui::Ui) {
                 if self.safe_log.is_empty() {
                     ui.label(
                         egui::RichText::new(t("Nessuna ottimizzazione avviata ancora in questa sessione."))
-                            .color(ui::TEXT_DIM),
+                            .color(ui::text_dim()),
                     );
                 } else {
                     for line in &self.safe_log {
@@ -2060,7 +3157,7 @@ fn draw_safe_optimize_summary(&self, ui: &mut egui::Ui) {
                     ))
                     .strong()
                     .size(18.0)
-                    .color(ui::GOOD),
+                    .color(ui::semantic_text(ui::GOOD)),
                 );
                 ui.add_space(12.0);
                 ui.colored_label(
@@ -2098,13 +3195,13 @@ fn draw_safe_optimize_summary(&self, ui: &mut egui::Ui) {
                                 if bytes > 0 {
                                     ui.label(
                                         egui::RichText::new(cleaner::fmt_bytes(bytes))
-                                            .color(ui::ACCENT),
+                                            .color(ui::accent_text()),
                                     );
                                 }
                             }
                         });
                         if !entry.detail.is_empty() {
-                            ui.label(egui::RichText::new(&entry.detail).color(ui::TEXT_DIM));
+                            ui.label(egui::RichText::new(&entry.detail).color(ui::text_dim()));
                         }
                     });
                 });
@@ -2118,21 +3215,15 @@ fn draw_safe_optimize_summary(&self, ui: &mut egui::Ui) {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain();
-        if self.cfg.dark_mode {
-            ctx.set_visuals(egui::Visuals::dark());
-        } else {
-            ctx.set_visuals(egui::Visuals::light());
+        // Il badge dell'intestazione segue sempre la pagina attiva, anche nelle sottoschede.
+        ui::set_current_page(self.page);
+        // Applica il tema solo quando cambia: in precedenza il set_visuals di
+        // ogni frame annullava gradienti, rounding e colori di apply_theme.
+        if ctx.style().visuals.dark_mode != self.cfg.dark_mode {
+            ui::apply_theme(ctx, self.cfg.dark_mode);
         }
-        let sidebar_bg = if self.cfg.dark_mode {
-            egui::Color32::from_rgb(16, 21, 29)
-        } else {
-            egui::Color32::from_rgb(230, 234, 240)
-        };
-        let content_bg = if self.cfg.dark_mode {
-            egui::Color32::from_rgb(25, 31, 42)
-        } else {
-            egui::Color32::from_rgb(245, 247, 250)
-        };
+        let sidebar_bg = ui::sidebar_bg(ctx);
+        let content_bg = ui::content_bg(ctx);
         if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.show_quit = true;
@@ -2164,30 +3255,57 @@ impl eframe::App for App {
         egui::SidePanel::left("side")
             .exact_width(270.0)
             .resizable(false)
-            .frame(egui::Frame::default().fill(sidebar_bg).inner_margin(egui::Margin::same(8.0)))
+            .frame(egui::Frame::default().fill(sidebar_bg).inner_margin(egui::Margin::same(10.0)))
             .show(ctx, |ui| {
-                ui.add_space(8.0);
+                // Testata semplice: logo, nome e un filetto discreto.
+                ui.add_space(4.0);
                 ui.horizontal(|ui| {
-                    ui.add(
-                        egui::Image::new(egui::include_image!("../assets/debclean.png"))
-                            .max_size(egui::vec2(28.0, 28.0)),
+                    let (logo, _) = ui.allocate_exact_size(egui::vec2(38.0, 38.0), egui::Sense::hover());
+                    ui.put(
+                        logo,
+                        egui::Image::new(egui::include_image!("../assets/debutility.png"))
+                            .max_size(egui::vec2(34.0, 34.0)),
                     );
-                    
-                    ui.label(egui::RichText::new(t("Deb")).size(30.0).strong().color(egui::Color32::WHITE));
-                    ui.label(egui::RichText::new(t("Clean")).size(30.0).strong().color(ui::ACCENT));
+                    ui.vertical(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 2.0;
+                            ui.label(egui::RichText::new(t("Deb")).size(27.0).strong().color(ui::text_primary()));
+                            ui.label(egui::RichText::new(t("Utility")).size(27.0).strong().color(ui::accent_text()));
+                        });
+                        ui.label(
+                            egui::RichText::new(format!("v{}", APP_VERSION))
+                                .size(12.5)
+                                .strong()
+                                .color(ui::text_dim()),
+                        );
+                        ui.label(egui::RichText::new(t("Ottimizzatore di sistema")).size(12.0).color(ui::text_dim()));
+                    });
                 });
-                ui.label(egui::RichText::new(t("Ottimizzatore di sistema")).color(ui::TEXT_DIM));
-                ui.add_space(6.0);
+                let (line, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 2.0), egui::Sense::hover());
+                ui::accent_strip(ui.painter(), line, ui::alpha(ui::ACCENT, 130), egui::Color32::TRANSPARENT);
+                ui.add_space(9.0);
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 3.0;
                     for (group, entries) in MENU {
                         if !group.is_empty() {
                             ui.add_space(12.0);
-                            ui.label(egui::RichText::new(t(*group)).size(13.0).strong().color(ui::TEXT_DIM));
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 7.0;
+                                let (dot, _) = ui.allocate_exact_size(egui::vec2(6.0, 6.0), egui::Sense::hover());
+                                ui.painter().circle_filled(dot.center(), 3.0, ui::ACCENT);
+                                ui.label(egui::RichText::new(t(*group)).size(12.0).strong().color(ui::text_dim()));
+                            });
                             ui.add_space(2.0);
                         }
                         for (p, name) in entries.iter() {
-                            if ui::sidebar_item(ui, *p, t(*name), self.page == *p) {
+                            let label = t(*name);
+                            // La sidebar usa un'etichetta breve; il tooltip mostra il nome completo.
+                            let full_label = if *p == Page::TelemetryGuard {
+                                t("Privacy & Telemetry Guard")
+                            } else {
+                                label
+                            };
+                            if ui::sidebar_item(ui, *p, label, full_label, self.page == *p) {
                                 next = Some(*p);
                             }
                         }
@@ -2199,18 +3317,25 @@ impl eframe::App for App {
             self.enter(ctx, p);
         }
 
-        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
+        egui::TopBottomPanel::bottom("status")
+            .frame(
+                egui::Frame::default()
+                    .fill(sidebar_bg)
+                    .inner_margin(egui::Margin::symmetric(12.0, 7.0))
+                    .stroke(egui::Stroke::new(1.0_f32, if ui::is_dark() { egui::Color32::from_white_alpha(12) } else { egui::Color32::from_rgb(203, 213, 225) })),
+            )
+            .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                if self.busy {
+                if !self.progress_status_ui(ui) && self.busy {
                     ui.spinner();
                 }
                 if util::is_root() {
                     let admin_text = format!(" [⚡ {}] ", t("MODALITÀ AMMINISTRATORE"));
-                    ui.colored_label(crate::ui::WARN, admin_text);
+                    ui.colored_label(crate::ui::semantic_text(crate::ui::WARN), admin_text);
                 }
                 let last = self.log.trim_end().rsplit('\n').next().unwrap_or("");
                 let last = if last.is_empty() { t("Pronto") } else { last };
-                ui.label(egui::RichText::new(last).color(crate::ui::TEXT_DIM));
+                ui.label(egui::RichText::new(last).color(crate::ui::text_dim()));
             });
         });
 
@@ -2245,17 +3370,17 @@ impl eframe::App for App {
 
         if self.show_quit {
             let (mut close, mut stay) = (false, false);
-            egui::Window::new(t("Chiudere DebClean?"))
+            egui::Window::new(t("Chiudere DebUtility?"))
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
                     ui.set_max_width(460.0);
                     if self.busy {
-                        ui.colored_label(ui::WARN, t("Un'operazione è ancora in corso (pulizia, aggiornamento o altro). Se chiudi ora potrebbe interrompersi a metà e lasciare il sistema in uno stato incompleto."));
+                        ui.colored_label(ui::semantic_text(ui::WARN), t("Un'operazione è ancora in corso (pulizia, aggiornamento o altro). Se chiudi ora potrebbe interrompersi a metà e lasciare il sistema in uno stato incompleto."));
                         ui.label(t("Ti consiglio di aspettare che finisca."));
                     } else {
-                        ui.label(t("Vuoi davvero chiudere DebClean?"));
+                        ui.label(t("Vuoi davvero chiudere DebUtility?"));
                     }
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
@@ -2265,7 +3390,7 @@ impl eframe::App for App {
                         {
                             close = true;
                         }
-                        if ui.button(t("Continua a usare DebClean")).clicked() {
+                        if ui.button(t("Continua a usare DebUtility")).clicked() {
                             stay = true;
                         }
                     });
@@ -2284,7 +3409,9 @@ impl eframe::App for App {
         egui::CentralPanel::default()
             .frame(egui::Frame::default().fill(content_bg).inner_margin(egui::Margin::same(14.0)))
             .show(ctx, |ui| {
-                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match self.page {
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                self.progress_ui(ui);
+                match self.page {
                     Page::Dashboard => goto = self.ui_dashboard(ui, ctx),
                     Page::Cleaner => self.ui_cleaner(ui, ctx),
                     Page::SafeOptimize => self.ui_safe_optimize(ui, ctx),
@@ -2324,6 +3451,7 @@ impl eframe::App for App {
                     Page::Guide => self.ui_guide(ui),
                     Page::About => self.ui_about(ui, ctx),
                     Page::Duplicates => self.ui_duplicates(ui, ctx),
+                    Page::Quarantine => self.ui_quarantine(ui, ctx),
                     Page::Services => self.ui_services(ui, ctx),
                     Page::Updates => self.ui_updates(ui, ctx),
                     Page::Snaps => self.ui_snaps(ui, ctx),
@@ -2334,6 +3462,7 @@ impl eframe::App for App {
                     Page::AdvancedCleaner => self.ui_advanced_cleaner(ui, ctx),
                     Page::Report => self.ui_report(ui, ctx),
                     Page::DiskAnalyzer => self.ui_disk_analyzer(ui, ctx),
+                    Page::DiskTreemap => self.ui_disk_treemap(ui, ctx),
                     Page::MenuEditor => self.ui_menu_editor(ui),
                     Page::SecurityHardening => self.ui_security_hardening(ui, ctx),
                     Page::HardwareHealth => self.ui_hardware_health(ui, ctx),
@@ -2342,6 +3471,9 @@ impl eframe::App for App {
                     Page::SystemEditor => self.ui_system_editor(ui, ctx),
                     Page::TelemetryGuard => self.ui_telemetry_guard(ui, ctx),
                     Page::Mounts => self.ui_mounts(ui, ctx),
+                    Page::DevContainers => self.ui_dev_containers(ui, ctx),
+                    Page::KernelBoot => self.ui_kernel_boot(ui, ctx),
+                }
                 });
             });
         if let Some(p) = goto {
@@ -2350,38 +3482,643 @@ impl eframe::App for App {
     }
 }
 
-fn main() -> eframe::Result<()> {
-    let cfg = pages_sec::Config::load();
-    
-    if cfg.start_as_root && !util::is_root() {
-        let current_exe = std::env::current_exe().unwrap_or_default();
-        let exe_path = current_exe.to_string_lossy();
-        
-        let _status = std::process::Command::new("pkexec")
-        .arg("env")
-        .arg(format!("DISPLAY={}", std::env::var("DISPLAY").unwrap_or_default()))
-        .arg(format!("WAYLAND_DISPLAY={}", std::env::var("WAYLAND_DISPLAY").unwrap_or_default()))
-        .arg(format!("XAUTHORITY={}", std::env::var("XAUTHORITY").unwrap_or_default()))
-        .arg(&*exe_path)
-        .status();
-            
-        return Ok(());
+/// Percorso della socket di istanza singola, fuori da `/tmp`.
+///
+/// In `/tmp` il nome era prevedibile e sostituibile da qualsiasi utente:
+/// una socket "fantasma" poteva impedire l'avvio, e un link simbolico poteva
+/// indurre a rimuovere un file non appartenente all'applicazione. Usiamo
+/// `XDG_RUNTIME_DIR`, altrimenti una cartella privata nella home dell'utente
+/// (risolta con `util::home()` anche quando DebUtility è avviato tramite pkexec).
+fn instance_socket_path() -> std::path::PathBuf {
+    let xdg_dir = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_absolute() && p.is_dir());
+    let dir = match xdg_dir {
+        Some(d) => d,
+        None => {
+            let home = util::home();
+            let d = if home.is_empty() {
+                std::path::PathBuf::from(format!("/run/user/{}", util::uid()))
+            } else {
+                std::path::PathBuf::from(home).join(".cache/debutility")
+            };
+            let _ = std::fs::create_dir_all(&d);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o700));
+            }
+            // Se è stato avviato con pkexec/sudo, la cartella deve restare
+            // accessibile all'utente che ha richiesto l'elevazione.
+            if let (Ok(uid), Ok(gid)) = (std::env::var("PKEXEC_UID"), std::env::var("PKEXEC_GID")) {
+                let _ = std::process::Command::new("chown")
+                    .arg(format!("{uid}:{gid}"))
+                    .arg(&d)
+                    .status();
+            }
+            d
+        }
+    };
+    dir.join(format!("debutility-single-instance-{}.sock", util::uid()))
+}
+
+/// Modalità CLI/headless. Viene gestita all'inizio di `main`, prima di creare
+/// il lock di istanza singola e prima di `eframe::run_native`: così funziona
+/// anche su server senza display X11/Wayland.
+mod cli {
+    use crate::i18n::{t, tf};
+    use crate::timers_state;
+    use crate::{cleaner, pages_clean, util};
+    use crate::APP_VERSION;
+
+    const EXIT_OK: i32 = 0;
+    const EXIT_ERROR: i32 = 1;
+    const EXIT_USAGE: i32 = 2;
+
+    #[derive(Default)]
+    struct Args {
+        scan: bool,
+        clean: bool,
+        dry_run: bool,
+        json: bool,
+        yes: bool,
+        include_set: bool,
+        include: Vec<String>,
+        exclude: Vec<String>,
     }
 
-    let user_suffix = std::env::var("PKEXEC_UID")
-        .or_else(|_| std::env::var("USER"))
-        .unwrap_or_else(|_| "default".to_string());
-    let socket_path = format!("/tmp/debclean_single_instance_{}.sock", user_suffix);
-    
+    /// Categorie effettivamente selezionate per la pulizia headless.
+    #[derive(Clone, Debug)]
+    struct Selection {
+        ids: Vec<String>,
+    }
+
+    impl Selection {
+        fn has(&self, id: &str) -> bool {
+            self.ids.iter().any(|v| v == id)
+        }
+
+        fn kinds(&self) -> Vec<cleaner::Kind> {
+            cleaner::items()
+                .into_iter()
+                .filter(|item| self.has(kind_id(item.kind)))
+                .map(|item| item.kind)
+                .collect()
+        }
+
+    }
+
+    #[derive(Default)]
+    struct Entry {
+        id: &'static str,
+        label: String,
+        bytes: Option<u64>,
+        count: Option<usize>,
+        paths: Vec<String>,
+    }
+
+    #[derive(Default)]
+    struct Report {
+        entries: Vec<Entry>,
+        logs: Vec<String>,
+        warnings: Vec<String>,
+        freed_bytes: Option<u64>,
+    }
+
+    impl Report {
+        fn total_bytes(&self) -> u64 {
+            self.entries.iter().filter_map(|e| e.bytes).sum()
+        }
+    }
+
+    /// Gestisce gli argomenti: ritorna solo se deve essere avviata la GUI.
+    pub fn handle() {
+        let raw: Vec<String> = std::env::args().skip(1).collect();
+        if raw.is_empty() {
+            return;
+        }
+        crate::i18n::set_lang(crate::i18n::detect());
+
+        if raw.iter().any(|a| matches!(a.as_str(), "-h" | "--help")) {
+            println!("{}", help_text());
+            std::process::exit(EXIT_OK);
+        }
+        if raw.iter().any(|a| matches!(a.as_str(), "-V" | "--version")) {
+            println!("DebUtility {}", APP_VERSION);
+            std::process::exit(EXIT_OK);
+        }
+
+        let mut args = Args::default();
+        let mut i = 0;
+        while i < raw.len() {
+            let arg = raw[i].as_str();
+            match arg {
+                "--scan" => args.scan = true,
+                "--clean" => args.clean = true,
+                "--dry-run" => args.dry_run = true,
+                "--json" => args.json = true,
+                "--yes" => args.yes = true,
+                "--include" | "--exclude" => {
+                    i += 1;
+                    let value = raw.get(i).cloned().unwrap_or_default();
+                    let ids = parse_ids(&value);
+                    if arg == "--include" {
+                        args.include_set = true;
+                        args.include = ids;
+                    } else {
+                        args.exclude.extend(ids);
+                    }
+                }
+                other if other.starts_with("--include=") => {
+                    args.include_set = true;
+                    args.include = parse_ids(&other["--include=".len()..]);
+                }
+                other if other.starts_with("--exclude=") => {
+                    args.exclude
+                        .extend(parse_ids(&other["--exclude=".len()..]));
+                }
+                other => usage_error(tf("Argomento non valido: {}", &[&other as &dyn std::fmt::Display])),
+            }
+            i += 1;
+        }
+
+        let selection = build_selection(&args);
+
+        if !args.scan && !args.clean && !args.dry_run {
+            usage_error(t("Nessun comando specificato: usa --scan, --clean o --dry-run (oppure avvia DebUtility senza argomenti per la GUI).").to_string());
+        }
+        if args.scan && (args.clean || args.dry_run) {
+            usage_error(t("--scan non può essere combinato con --clean o --dry-run.").to_string());
+        }
+        if args.json && !(args.scan || args.clean || args.dry_run) {
+            usage_error(t("--json richiede --scan, --clean o --dry-run.").to_string());
+        }
+        if args.yes && !(args.clean || args.dry_run) {
+            usage_error(t("--yes richiede --clean o --dry-run.").to_string());
+        }
+        if args.clean && !args.dry_run && !args.yes {
+            eprintln!("{}", t("--clean richiede --yes: nessun file è stato rimosso."));
+            eprintln!("{}", help_text());
+            std::process::exit(EXIT_USAGE);
+        }
+
+        if selection.ids.is_empty() {
+            usage_error(t("Nessuna categoria valida selezionata.").to_string());
+        }
+
+        let mode = if args.dry_run { "dry-run" } else if args.clean { "clean" } else { "scan" };
+        let mut report = collect(mode != "scan", &selection);
+        let ok = match mode {
+            "scan" | "dry-run" => true,
+            _ => execute_clean(&mut report, &selection),
+        };
+        print_report(mode, &report, args.json, ok, &selection);
+        if args.json && mode == "clean" {
+            let run = timers_state::LastRun {
+                timestamp: util::timestamp(),
+                status: if ok { "ok" } else { "error" }.to_string(),
+                exit_code: if ok { EXIT_OK } else { EXIT_ERROR },
+                freed_bytes: report.freed_bytes.unwrap_or_else(|| report.total_bytes()),
+                freed_human: cleaner::fmt_bytes(report.freed_bytes.unwrap_or_else(|| report.total_bytes())),
+                selected: selection.ids.clone(),
+                warnings: report.warnings.clone(),
+            };
+            if let Err(e) = timers_state::save_last_run(&run, &report.logs) {
+                eprintln!("{}", tf("Impossibile salvare lo stato della pulizia: {}", &[&e]));
+            }
+        }
+        std::process::exit(if ok { EXIT_OK } else { EXIT_ERROR });
+    }
+
+    fn parse_ids(value: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        for raw in value.split(',') {
+            let id = raw.trim();
+            if id.is_empty() || id == "-" {
+                continue;
+            }
+            if !timers_state::CLEAN_OPTIONS
+                .iter()
+                .any(|(known, _, _)| *known == id)
+            {
+                usage_error(tf("Categoria non valida in --include/--exclude: {}", &[&id]));
+            }
+            if !out.iter().any(|v| v == id) {
+                out.push(id.to_string());
+            }
+        }
+        out
+    }
+
+    fn build_selection(args: &Args) -> Selection {
+        let requested: Vec<String> = if args.include_set {
+            args.include.clone()
+        } else {
+            timers_state::DEFAULT_INCLUDES.iter().map(|s| s.to_string()).collect()
+        };
+        let ids = timers_state::CLEAN_OPTIONS
+            .iter()
+            .filter(|(id, _, _)| requested.iter().any(|v| v == id) && !args.exclude.iter().any(|v| v == id))
+            .map(|(id, _, _)| id.to_string())
+            .collect();
+        Selection { ids }
+    }
+
+    fn usage_error(msg: String) -> ! {
+        eprintln!("{msg}");
+        eprintln!("{}", help_text());
+        std::process::exit(EXIT_USAGE)
+    }
+
+    fn help_text() -> String {
+        let lines = [
+            format!("DebUtility {} — {}", APP_VERSION, t("Modalità CLI / headless (nessuna GUI richiesta)")),
+            String::new(),
+            t("Uso:").to_string(),
+            t("  debutility                     Avvia la GUI").to_string(),
+            t("  debutility --scan [--json]     Scansione sicura e riepilogo").to_string(),
+            t("  debutility --clean --yes       Pulizia sicura non interattiva").to_string(),
+            t("  debutility --dry-run           Anteprima senza eliminare nulla").to_string(),
+            String::new(),
+            t("Opzioni:").to_string(),
+            t("  -h, --help     Mostra questo aiuto ed esce").to_string(),
+            t("  -V, --version  Mostra la versione ed esce").to_string(),
+            t("  --json         Output JSON strutturato per script").to_string(),
+            t("  --yes          Conferma esplicita richiesta da --clean").to_string(),
+            t("  --include=ID1,ID2   Limita la pulizia alle categorie indicate").to_string(),
+            t("  --exclude=ID1,ID2   Esclude categorie dalla selezione predefinita").to_string(),
+            String::new(),
+            tf(
+                "Categorie disponibili: {}",
+                &[&timers_state::CLEAN_OPTIONS
+                    .iter()
+                    .map(|(id, _, _)| *id)
+                    .collect::<Vec<_>>()
+                    .join(", ")],
+            ),
+            String::new(),
+            t("Codici di uscita:").to_string(),
+            t("  0 successo, 1 errore operativo, 2 argomenti non validi o --yes mancante").to_string(),
+        ];
+        lines.join("\n")
+    }
+
+    /// Identificatore CLI di ogni categoria pulita da `cleaner`.
+    fn kind_id(kind: cleaner::Kind) -> &'static str {
+        match kind {
+            cleaner::Kind::Temp => "temp",
+            cleaner::Kind::AptCache => "apt_cache",
+            cleaner::Kind::BrowserCache => "browser_cache",
+            cleaner::Kind::OldLogs => "old_logs",
+            cleaner::Kind::Journal => "journal",
+            cleaner::Kind::UserCache => "user_cache",
+            cleaner::Kind::Thumbnails => "thumbnails",
+            _ => "other",
+        }
+    }
+
+    /// Percorsi concreti che verrebbero rimossi. Per i comandi privilegiati
+    /// riutilizza esattamente gli stessi filtri di `cleaner`, in sola lettura.
+    fn preview_paths(kind: cleaner::Kind) -> Vec<String> {
+        if matches!(kind, cleaner::Kind::Temp | cleaner::Kind::OldLogs) {
+            if let Some(cmd) = cleaner::priv_cmd(kind) {
+                let (_, out) = util::run_shell(&cmd.replace("-delete", "-print"), false);
+                return out
+                    .lines()
+                    .filter(|l| !l.trim().is_empty())
+                    .map(str::to_string)
+                    .collect();
+            }
+            return Vec::new();
+        }
+        let mut list = Vec::new();
+        for base in cleaner::paths(kind) {
+            match std::fs::read_dir(&base) {
+                Ok(rd) => {
+                    for entry in rd.flatten() {
+                        list.push(entry.path().display().to_string());
+                    }
+                }
+                Err(_) => {
+                    if base.exists() {
+                        list.push(base.display().to_string());
+                    }
+                }
+            }
+        }
+        list
+    }
+
+    fn collect(with_paths: bool, selection: &Selection) -> Report {
+        let mut report = Report::default();
+        let items = cleaner::items();
+        let sizes = cleaner::scan();
+        for (item, size) in items.iter().zip(sizes.into_iter()) {
+            if !selection.has(kind_id(item.kind)) {
+                continue;
+            }
+            report.entries.push(Entry {
+                id: kind_id(item.kind),
+                label: t(item.name).to_string(),
+                bytes: size,
+                count: None,
+                paths: if with_paths { preview_paths(item.kind) } else { Vec::new() },
+            });
+        }
+
+        if selection.has("rc_packages") {
+            let rc: Vec<String> = cleaner::scan_rc_pkgs().into_iter().map(|(n, _)| n).collect();
+            report.entries.push(Entry {
+                id: "rc_packages",
+                label: t("Residui APT (pacchetti rc)").to_string(),
+                bytes: None,
+                count: Some(rc.len()),
+                paths: if with_paths { rc } else { Vec::new() },
+            });
+        }
+
+        if selection.has("flatpak_unused") {
+            let flatpak: Vec<String> = cleaner::scan_flatpak_unused().into_iter().map(|(n, _)| n).collect();
+            report.entries.push(Entry {
+                id: "flatpak_unused",
+                label: t("Runtime Flatpak inutilizzati").to_string(),
+                bytes: None,
+                count: Some(flatpak.len()),
+                paths: if with_paths { flatpak } else { Vec::new() },
+            });
+        }
+
+        if selection.has("empty_dirs") {
+            let dirs: Vec<String> = pages_clean::scan_dirs(false).into_iter().map(|f| f.path).collect();
+            report.entries.push(Entry {
+                id: "empty_dirs",
+                label: t("Cartelle vuote").to_string(),
+                bytes: Some(0),
+                count: Some(dirs.len()),
+                paths: if with_paths { dirs } else { Vec::new() },
+            });
+        }
+
+        if selection.has("empty_files") {
+            let files: Vec<String> = pages_clean::scan_files(false).into_iter().map(|f| f.path).collect();
+            report.entries.push(Entry {
+                id: "empty_files",
+                label: t("File vuoti (0 byte)").to_string(),
+                bytes: Some(0),
+                count: Some(files.len()),
+                paths: if with_paths { files } else { Vec::new() },
+            });
+        }
+        report
+    }
+
+    /// Esegue solo le categorie selezionate, riutilizzando le funzioni di
+    /// pulizia della GUI. Lo spazio liberato è misurato prima/dopo.
+    fn execute_clean(report: &mut Report, selection: &Selection) -> bool {
+        let kinds = selection.kinds();
+        let nested_in_user_cache = kinds.contains(&cleaner::Kind::UserCache);
+        let measured: Vec<cleaner::Kind> = kinds
+            .iter()
+            .copied()
+            .filter(|k| {
+                !nested_in_user_cache
+                    || !matches!(k, cleaner::Kind::BrowserCache | cleaner::Kind::Thumbnails)
+            })
+            .collect();
+        let before: Vec<(cleaner::Kind, Option<u64>)> = measured
+            .iter()
+            .copied()
+            .map(|k| (k, cleaner::size(k)))
+            .collect();
+
+        let mut ok = true;
+        let logs = cleaner::clean_all_with_progress(&kinds, |_, _, _| {});
+        for line in logs {
+            if line.starts_with('✘') {
+                ok = false;
+                report.warnings.push(line.clone());
+            }
+            report.logs.push(line);
+        }
+        let mut freed = 0u64;
+        for (kind, before_size) in before {
+            if let (Some(b), Some(a)) = (before_size, cleaner::size(kind)) {
+                freed += b.saturating_sub(a);
+            }
+        }
+
+        if selection.has("rc_packages") {
+            let rc: Vec<String> = cleaner::scan_rc_pkgs().into_iter().map(|(n, _)| n).collect();
+            if !rc.is_empty() {
+                let names = rc.iter().map(|p| util::shq(p)).collect::<Vec<_>>().join(" ");
+                let (res, out) = util::run_shell(&format!("apt-get purge -y {names}"), true);
+                report.logs.push(format!("{} {}: {}", if res { "✔" } else { "✘" }, t("Residui APT (pacchetti rc)"), util::tail(out.trim(), 3).replace('\n', " | ")));
+                if !res {
+                    ok = false;
+                }
+            }
+        }
+
+        if selection.has("flatpak_unused") {
+            let flatpak: Vec<String> = cleaner::scan_flatpak_unused().into_iter().map(|(n, _)| n).collect();
+            if !flatpak.is_empty() {
+                let res = cleaner::remove_unused_flatpaks(&flatpak);
+                report.logs.push(format!("{} {}", if res { "✔" } else { "✘" }, t("Runtime Flatpak inutilizzati")));
+                if !res {
+                    ok = false;
+                }
+            }
+        }
+
+        if selection.has("empty_dirs") {
+            let dirs: Vec<String> = pages_clean::scan_dirs(false).into_iter().map(|f| f.path).collect();
+            let (_, err) = pages_clean::delete_empty_items(true, dirs, |_, _, _| {});
+            report.logs.push(format!("{} {}", if err == 0 { "✔" } else { "✘" }, t("Cartelle vuote")));
+            ok &= err == 0;
+        }
+
+        if selection.has("empty_files") {
+            let files: Vec<String> = pages_clean::scan_files(false).into_iter().map(|f| f.path).collect();
+            let (_, err) = pages_clean::delete_empty_items(false, files, |_, _, _| {});
+            report.logs.push(format!("{} {}", if err == 0 { "✔" } else { "✘" }, t("File vuoti (0 byte)")));
+            ok &= err == 0;
+        }
+
+        report.freed_bytes = Some(freed);
+        ok
+    }
+
+    fn print_report(mode: &str, report: &Report, json: bool, ok: bool, selection: &Selection) {
+        if json {
+            println!("{}", report_json(mode, report, ok, selection));
+            return;
+        }
+        let heading = match mode {
+            "scan" => t("Scansione sicura completata"),
+            "dry-run" => t("Elementi da rimuovere:"),
+            _ => t("Pulizia completata."),
+        };
+        println!("{heading}");
+        for entry in &report.entries {
+            let amount = match (entry.bytes, entry.count) {
+                (Some(b), _) => cleaner::fmt_bytes(b),
+                (None, Some(c)) => c.to_string(),
+                (None, None) => "-".to_string(),
+            };
+            println!("- {}: {}", entry.label, amount);
+            if mode == "dry-run" {
+                for path in &entry.paths {
+                    println!("    {path}");
+                }
+            }
+        }
+        if mode == "scan" {
+            println!(
+                "{} {}",
+                t("Spazio totale recuperabile:"),
+                cleaner::fmt_bytes(report.total_bytes())
+            );
+        }
+        if mode == "clean"
+            && report
+                .entries
+                .iter()
+                .all(|e| e.bytes.unwrap_or(0) == 0 && e.count.unwrap_or(0) == 0)
+        {
+            println!("{}", t("Nessun elemento sicuro da rimuovere."));
+        }
+        if mode == "clean" {
+            for line in &report.logs {
+                println!("{line}");
+            }
+        }
+        for warning in &report.warnings {
+            eprintln!("{}: {}", t("Attenzione"), warning);
+        }
+        if !ok {
+            eprintln!("{}", t("Errore operativo durante la pulizia."));
+        }
+    }
+
+    fn jstr(s: &str) -> String {
+        let mut out = String::with_capacity(s.len() + 2);
+        out.push('"');
+        for c in s.chars() {
+            match c {
+                '"' => out.push_str("\\\""),
+                '\\' => out.push_str("\\\\"),
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\t' => out.push_str("\\t"),
+                c if c.is_control() => out.push_str(&format!("\\u{:04x}", c as u32)),
+                c => out.push(c),
+            }
+        }
+        out.push('"');
+        out
+    }
+
+    fn jarr(items: &[String]) -> String {
+        format!(
+            "[{}]",
+            items.iter().map(|s| jstr(s)).collect::<Vec<_>>().join(",")
+        )
+    }
+
+    fn report_json(mode: &str, report: &Report, ok: bool, selection: &Selection) -> String {
+        let mut out = String::new();
+        out.push_str("{\n");
+        out.push_str(&format!("  \"mode\": {},\n", jstr(mode)));
+        out.push_str(&format!("  \"timestamp\": {},\n", jstr(&util::timestamp())));
+        out.push_str(&format!("  \"status\": {},\n", jstr(if ok { "ok" } else { "error" })));
+        out.push_str(&format!("  \"exit_code\": {},\n", if ok { EXIT_OK } else { EXIT_ERROR }));
+        out.push_str(&format!("  \"selected\": {},\n", jarr(&selection.ids)));
+        out.push_str(&format!("  \"total_recoverable_bytes\": {},\n", report.total_bytes()));
+        out.push_str(&format!(
+            "  \"total_recoverable_human\": {},\n",
+            jstr(&cleaner::fmt_bytes(report.total_bytes()))
+        ));
+        out.push_str(&format!(
+            "  \"freed_bytes\": {},\n",
+            match report.freed_bytes {
+                Some(b) => b.to_string(),
+                None => "null".to_string(),
+            }
+        ));
+        out.push_str(&format!(
+            "  \"freed_human\": {},\n",
+            jstr(&cleaner::fmt_bytes(report.freed_bytes.unwrap_or(0)))
+        ));
+        out.push_str("  \"entries\": [\n");
+        for (i, e) in report.entries.iter().enumerate() {
+            out.push_str("    {\n");
+            out.push_str(&format!("      \"id\": {},\n", jstr(e.id)));
+            out.push_str(&format!("      \"label\": {},\n", jstr(&e.label)));
+            out.push_str(&format!(
+                "      \"bytes\": {},\n",
+                match e.bytes {
+                    Some(b) => b.to_string(),
+                    None => "null".to_string(),
+                }
+            ));
+            out.push_str(&format!(
+                "      \"human\": {},\n",
+                match e.bytes {
+                    Some(b) => jstr(&cleaner::fmt_bytes(b)),
+                    None => "null".to_string(),
+                }
+            ));
+            out.push_str(&format!(
+                "      \"count\": {},\n",
+                match e.count {
+                    Some(c) => c.to_string(),
+                    None => "null".to_string(),
+                }
+            ));
+            out.push_str(&format!("      \"paths\": {}\n", jarr(&e.paths)));
+            out.push_str("    }");
+            if i + 1 < report.entries.len() {
+                out.push(',');
+            }
+            out.push('\n');
+        }
+        out.push_str("  ],\n");
+        out.push_str(&format!("  \"logs\": {},\n", jarr(&report.logs)));
+        out.push_str(&format!("  \"warnings\": {}\n", jarr(&report.warnings)));
+        out.push_str("}\n");
+        out
+    }
+}
+
+fn main() -> eframe::Result<()> {
+    // Modalità CLI/headless: nessuna GUI, nessun lock di istanza e nessun
+    // controllo su DISPLAY/WAYLAND_DISPLAY deve precedere questi comandi.
+    cli::handle();
+
+    // L'avvio automatico come root è stato rimosso: i privilegi sono richiesti
+    // solo dalle singole operazioni tramite pkexec. Il cfg resta in App::new().
+
+    let socket_path = instance_socket_path();
+
     if std::os::unix::net::UnixStream::connect(&socket_path).is_ok() {
-        eprintln!("DebClean è già in esecuzione!");
+        eprintln!("DebUtility è già in esecuzione!");
         let _ = std::process::Command::new("notify-send")
-            .args(["DebClean", "L'applicazione è già in esecuzione."])
+            .args(["DebUtility", "L'applicazione è già in esecuzione."])
             .spawn();
         return Ok(());
     }
 
-    let _ = std::fs::remove_file(&socket_path);
+    // Rimuove solo una socket rimasta da un arresto anomalo: mai symlink o
+    // altri file, così anche in una cartella condivisa non si tocca nulla di
+    // estraneo.
+    {
+        use std::os::unix::fs::FileTypeExt;
+        if let Ok(md) = std::fs::symlink_metadata(&socket_path) {
+            if md.file_type().is_socket() {
+                let _ = std::fs::remove_file(&socket_path);
+            }
+        }
+    }
 
     let _instance_lock = match std::os::unix::net::UnixListener::bind(&socket_path) {
         Ok(listener) => listener,
@@ -2397,5 +4134,5 @@ fn main() -> eframe::Result<()> {
             .with_min_inner_size([1120.0, 700.0]),
         ..Default::default()
     };
-    eframe::run_native("DebClean", options, Box::new(|cc| Ok(Box::new(App::new(cc)))))
+    eframe::run_native("DebUtility", options, Box::new(|cc| Ok(Box::new(App::new(cc)))))
 }

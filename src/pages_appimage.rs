@@ -86,6 +86,7 @@ pub fn integrate_appimage(item: &AppImageItem) -> Result<(), String> {
 
 impl App {
     pub(crate) fn ui_appimages(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui::title(ui, "AppImage");
         ui::card(ui, |ui| {
             ui.label(egui::RichText::new(t("Gestione AppImage")).strong().size(20.0));
             ui.label(t("Rileva le applicazioni AppImage in ~/Applications, ~/AppImages o ~/.local/bin e le integra nel menu delle applicazioni di sistema."));
@@ -105,7 +106,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(&item.name).strong().size(18.0));
                     if item.is_integrated {
-                        ui.colored_label(ui::GOOD, t("nel menu"));
+                        ui.colored_label(ui::semantic_text(ui::GOOD), t("nel menu"));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if item.is_integrated {
@@ -127,7 +128,7 @@ impl App {
                         }
                     });
                 });
-                ui.label(egui::RichText::new(item.path.display().to_string()).size(13.0).color(ui::TEXT_DIM));
+                ui.label(egui::RichText::new(item.path.display().to_string()).size(13.0).color(ui::text_dim()));
             });
             ui.add_space(4.0);
         }

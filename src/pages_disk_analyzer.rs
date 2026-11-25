@@ -40,17 +40,19 @@ pub struct DeepDiskAnalysis {
     pub heavy_caches: Vec<HeavyCacheDir>,
 }
 
-pub fn scan_directory(path: &str) -> Vec<DiskItem> {
+/// Come `scan_directory`, ma notifica ogni elemento esaminato.
+pub fn scan_directory_with<F: FnMut(usize, &str)>(path: &str, mut on_progress: F) -> Vec<DiskItem> {
     let mut items = Vec::new();
     let p = Path::new(path);
     if let Ok(entries) = fs::read_dir(p) {
-        for entry in entries.flatten() {
+        for (idx, entry) in entries.flatten().enumerate() {
             let path_buf = entry.path();
             let name = path_buf
                 .file_name()
                 .unwrap_or_default()
                 .to_string_lossy()
                 .to_string();
+            on_progress(idx + 1, &name);
             let path_str = path_buf.to_string_lossy().to_string();
             let is_dir = path_buf.is_dir();
 
@@ -72,7 +74,17 @@ pub fn scan_directory(path: &str) -> Vec<DiskItem> {
     items
 }
 
-pub fn scan_deep_analysis(root_path: &str, min_mb: u64, max_days: u64) -> DeepDiskAnalysis {
+pub fn scan_directory(path: &str) -> Vec<DiskItem> {
+    scan_directory_with(path, |_, _| {})
+}
+
+/// Come `scan_deep_analysis`, ma notifica le cartelle visitate.
+pub fn scan_deep_analysis_with<F: FnMut(&str)>(
+    root_path: &str,
+    min_mb: u64,
+    max_days: u64,
+    mut on_progress: F,
+) -> DeepDiskAnalysis {
     let min_bytes = min_mb.saturating_mul(1024 * 1024);
     let max_age = Duration::from_secs(max_days.saturating_mul(86_400));
     let now = SystemTime::now();
@@ -86,10 +98,12 @@ pub fn scan_deep_analysis(root_path: &str, min_mb: u64, max_days: u64) -> DeepDi
         0,
         5,
         &mut recent_big_files,
+        &mut on_progress,
     );
     recent_big_files.sort_by(|a, b| b.size.cmp(&a.size));
     recent_big_files.truncate(25);
 
+    on_progress("Cartelle di cache più pesanti");
     let heavy_caches = scan_heavy_caches();
 
     DeepDiskAnalysis {
@@ -98,7 +112,11 @@ pub fn scan_deep_analysis(root_path: &str, min_mb: u64, max_days: u64) -> DeepDi
     }
 }
 
-fn collect_recent_big_files(
+pub fn scan_deep_analysis(root_path: &str, min_mb: u64, max_days: u64) -> DeepDiskAnalysis {
+    scan_deep_analysis_with(root_path, min_mb, max_days, |_| {})
+}
+
+fn collect_recent_big_files<F: FnMut(&str)>(
     dir: &Path,
     min_bytes: u64,
     max_age: Duration,
@@ -106,6 +124,7 @@ fn collect_recent_big_files(
     depth: usize,
     max_depth: usize,
     out: &mut Vec<RecentBigFile>,
+    on_progress: &mut F,
 ) {
     if depth > max_depth || out.len() >= 200 {
         return;
@@ -124,15 +143,25 @@ fn collect_recent_big_files(
             continue;
         }
 
+        let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+        on_progress(&name);
         if meta.is_dir() {
-            let name = p.file_name().unwrap_or_default().to_string_lossy();
             if matches!(
-                name.as_ref(),
+                name.as_str(),
                 "proc" | "sys" | "dev" | "run" | "snap" | "lost+found"
             ) {
                 continue;
             }
-            collect_recent_big_files(&p, min_bytes, max_age, now, depth + 1, max_depth, out);
+            collect_recent_big_files(
+                &p,
+                min_bytes,
+                max_age,
+                now,
+                depth + 1,
+                max_depth,
+                out,
+                &mut *on_progress,
+            );
         } else if meta.is_file() && meta.len() >= min_bytes {
             if let Ok(modified) = meta.modified() {
                 if let Ok(age) = now.duration_since(modified) {

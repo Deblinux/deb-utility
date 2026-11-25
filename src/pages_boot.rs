@@ -180,13 +180,13 @@ impl App {
 
             if !self.boot_summary.is_empty() {
                 ui::card(ui, |ui| {
-                    ui.label(egui::RichText::new(&self.boot_summary).strong().color(crate::ui::ACCENT).size(15.0));
+                    ui.label(egui::RichText::new(&self.boot_summary).strong().color(crate::ui::accent_text()).size(15.0));
                 });
                 ui.add_space(8.0);
             }
 
             ui::card(ui, |ui| {
-                ui.label(egui::RichText::new(format!("{} ({})", t("Servizi ordinati per tempo di avvio"), self.boot_items.len())).strong().color(crate::ui::ACCENT));
+                ui.label(egui::RichText::new(format!("{} ({})", t("Servizi ordinati per tempo di avvio"), self.boot_items.len())).strong().color(crate::ui::accent_text()));
                 ui.add_space(8.0);
 
                 if self.boot_items.is_empty() {
@@ -212,7 +212,7 @@ impl App {
 
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     let name = item.name.clone();
-                                    if ui.add_enabled(!busy, egui::Button::new(egui::RichText::new(t("Disabilita")).color(egui::Color32::WHITE))).clicked() {
+                                    if ui.add_enabled(!busy, egui::Button::new(egui::RichText::new(t("Disabilita")))).clicked() {
                                         let script = format!("sudo systemctl disable {}", util::shq(&name));
                                         let job = crate::cmd_job("boot", script, true);
                                         self.spawn(ctx, job);
@@ -270,10 +270,10 @@ impl App {
                                 ui.horizontal(|ui| {
                                     ui.label(egui::RichText::new(&item.name).strong());
                                     if item.delay_seconds > 0 {
-                                        ui.colored_label(crate::ui::ACCENT, format!("(Ritardo: {}s)", item.delay_seconds));
+                                        ui.colored_label(crate::ui::accent_text(), format!("(Ritardo: {}s)", item.delay_seconds));
                                     }
                                 });
-                                ui.label(egui::RichText::new(&item.exec).color(crate::ui::TEXT_DIM).size(12.0));
+                                ui.label(egui::RichText::new(&item.exec).color(crate::ui::text_dim()).size(12.0));
                             });
 
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

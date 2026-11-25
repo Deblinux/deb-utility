@@ -39,7 +39,7 @@ impl App {
 
         if !have_docker && !have_podman {
             ui::card(ui, |ui| {
-                ui.colored_label(ui::WARN, t("Né Docker né Podman sono installati nel sistema."));
+                ui.colored_label(ui::semantic_text(ui::WARN), t("Né Docker né Podman sono installati nel sistema."));
                 ui.label(t("Installa docker.io o podman da terminale per gestire i container da qui."));
             });
             return;
@@ -71,7 +71,7 @@ impl App {
                     ui.horizontal(|ui| {
                         ui::led(ui, Some(c.running), "");
                         ui.label(egui::RichText::new(&c.name).strong().size(18.0));
-                        ui.label(egui::RichText::new(format!("[{}]", c.image)).color(ui::TEXT_DIM));
+                        ui.label(egui::RichText::new(format!("[{}]", c.image)).color(ui::text_dim()));
 
                         let id_q = util::shq(&c.id);
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -80,7 +80,7 @@ impl App {
                                     self.spawn(ctx, crate::cmd_job("containers", format!("{runtime} stop {id_q}"), false));
                                 }
                             } else {
-                                if ui.add(egui::Button::new(t("Avvia")).fill(ui::GOOD)).clicked() {
+                                if ui::primary_button(ui, t("Avvia"), true).clicked() {
                                     self.spawn(ctx, crate::cmd_job("containers", format!("{runtime} start {id_q}"), false));
                                 }
                             }
@@ -89,7 +89,7 @@ impl App {
                             }
                         });
                     });
-                    ui.label(egui::RichText::new(&c.status).size(14.0).color(ui::TEXT_DIM));
+                    ui.label(egui::RichText::new(&c.status).size(14.0).color(ui::text_dim()));
                 });
                 ui.add_space(4.0);
             }

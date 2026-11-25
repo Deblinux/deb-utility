@@ -113,13 +113,13 @@ impl App {
 
         if issues.is_empty() {
             ui::card(ui, |ui| {
-                ui.colored_label(ui::GOOD, t("✔ Ottimo! Nessun file sensibile o chiave con permessi aperti rilevati."));
+                ui.colored_label(ui::semantic_text(ui::GOOD), t("✔ Ottimo! Nessun file sensibile o chiave con permessi aperti rilevati."));
             });
         } else {
             for item in issues {
                 ui::card(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(format!("{:04o} ➔ {:04o}", item.current_mode, item.recommended_mode)).strong().color(ui::WARN));
+                        ui.label(egui::RichText::new(format!("{:04o} ➔ {:04o}", item.current_mode, item.recommended_mode)).strong().color(ui::semantic_text(ui::WARN)));
                         ui.label(item.path.display().to_string());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button(t("Correggi")).clicked() {
@@ -127,7 +127,7 @@ impl App {
                             }
                         });
                     });
-                    ui.label(egui::RichText::new(t(item.reason)).size(14.0).color(ui::TEXT_DIM));
+                    ui.label(egui::RichText::new(t(item.reason)).size(14.0).color(ui::text_dim()));
                 });
                 ui.add_space(4.0);
             }
@@ -198,7 +198,7 @@ impl App {
 
         if !have_chk && !have_rkh {
             ui::card(ui, |ui| {
-                ui.colored_label(ui::WARN, t("Né chkrootkit né rkhunter sono installati nel sistema."));
+                ui.colored_label(ui::semantic_text(ui::WARN), t("Né chkrootkit né rkhunter sono installati nel sistema."));
                 if ui::primary_button(ui, t("Installa chkrootkit e rkhunter"), !self.busy).clicked() {
                     self.spawn(ctx, crate::cmd_job("rootkit", "apt-get update && apt-get install -y chkrootkit rkhunter".into(), true));
                 }

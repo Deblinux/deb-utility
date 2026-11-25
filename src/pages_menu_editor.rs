@@ -22,7 +22,7 @@ impl App {
         crate::ui::card(ui, |ui| {
             ui.label(egui::RichText::new(t("Gestisce i lanciatori utente e rigenera i menu testuali per window manager specifici come IceWM, JWM, Openbox o Fluxbox, oltre ai menu standard XDG.")).size(15.0));
             ui.add_space(4.0);
-            ui.label(egui::RichText::new(format!("{}: {}", t("Ambiente rilevato"), if current_env.is_empty() { "Generico" } else { &current_env })).strong().color(crate::ui::ACCENT).size(14.0));
+            ui.label(egui::RichText::new(format!("{}: {}", t("Ambiente rilevato"), if current_env.is_empty() { "Generico" } else { &current_env })).strong().color(crate::ui::accent_text()).size(14.0));
         });
         ui.add_space(12.0);
 
@@ -43,7 +43,7 @@ impl App {
             if let Some(status) = self.out.get("menu_backup").cloned() {
                 if !status.is_empty() {
                     ui.add_space(4.0);
-                    ui.label(egui::RichText::new(status).color(crate::ui::ACCENT));
+                    ui.label(egui::RichText::new(status).color(crate::ui::accent_text()));
                 }
             }
         });
@@ -100,7 +100,7 @@ impl App {
                                 self.new_menu_icon = item.icon.clone();
                                 self.new_menu_category = item.category.clone();
                             }
-                            ui.label(egui::RichText::new(&item.exec).color(crate::ui::TEXT_DIM).size(12.0));
+                            ui.label(egui::RichText::new(&item.exec).color(crate::ui::text_dim()).size(12.0));
                         });
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -120,7 +120,7 @@ impl App {
         if home.is_empty() {
             return;
         }
-        let backup_path = format!("{}/debclean_menu_wm_backup.tar.gz", home);
+        let backup_path = format!("{}/debutility_menu_wm_backup.tar.gz", home);
         let script = format!(
             "cd \"{home}\" && tar -czf \"{backup_path}\" .local/share/applications .icewm .config/openbox .config/fluxbox .config/jwm 2>/dev/null || true"
         );
@@ -137,11 +137,16 @@ impl App {
         if home.is_empty() {
             return;
         }
-        let backup_path = format!("{}/debclean_menu_wm_backup.tar.gz", home);
-        if !std::path::Path::new(&backup_path).exists() {
+        let backup_path = format!("{}/debutility_menu_wm_backup.tar.gz", home);
+        let legacy_path = format!("{}/debclean_menu_wm_backup.tar.gz", home);
+        let backup_path = if std::path::Path::new(&backup_path).exists() {
+            backup_path
+        } else if std::path::Path::new(&legacy_path).exists() {
+            legacy_path
+        } else {
             self.out.insert("menu_backup".into(), format!("✘ File di backup non trovato in: {backup_path}"));
             return;
-        }
+        };
         let script = format!(
             "cd \"{home}\" && tar -xzf \"{backup_path}\" 2>/dev/null || true"
         );
