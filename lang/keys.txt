@@ -848,6 +848,7 @@ Lingua dell'interfaccia
 Opzioni generali
 Pulizia rapida della cache utente all'avvio
 Tema scuro dell'interfaccia
+Controlla aggiornamenti all'avvio
 Password amministratore
 Profilo di Configurazione
 Esporta o importa le preferenze e le configurazioni di DebUtility in un file TOML.
@@ -963,6 +964,7 @@ Purga
 Dettagli pacchetto (clicca un nome sopra) e Log APT
 Esplora, cerca, installa o rimuovi pacchetti DEB dai repository ufficiali. Clicca su un pacchetto per leggerne i dettagli.
 Gestore Pacchetti (Synaptic)
+Vedi le note di rilascio
 Analisi in corso...
 Sto controllando lo stato del sistema.
 Apri il Fixer per correggerli.
@@ -1041,6 +1043,7 @@ Programma sviluppato con il supporto e la collaborazione dell'Intelligenza Artif
 Note legali e Sicurezza
 Licenza: software Open Source.
 Avviso di sicurezza: molte operazioni modificano il sistema. Esegui sempre un backup dei dati importanti prima di procedere.
+Nuova versione disponibile: {}
 {} problemi richiedono attenzione
 {} avvisi da controllare nel Fixer.
 zRAM attiva: {} (algoritmo {}), dati {} → compressi {}
