@@ -1,8 +1,12 @@
 [package]
-name = "debclean"
-version = "0.1.0"
+name = "debutility"
+version = "0.2.0"
 edition = "2021"
 description = "Pulizia, diagnosi e info di sistema per Debian (clone di Stacer in Rust)"
+
+[[bin]]
+name = "debutility"
+path = "src/main.rs"
 
 [dependencies]
 eframe = "0.29"
