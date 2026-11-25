@@ -1,88 +1,42 @@
 # DebUtility
 
-Clone di Stacer in Rust per Debian, con interfaccia grafica (egui): barra laterale scura, dashboard con indicatori circolari, tessere colorate e le schede del Deblinux Toolkit. Multilingua: Italiano, English, Español, Français, Deutsch.
+**DebUtility** è una suite nativa in **Rust** (`eframe` / `egui`) progettata per la pulizia profonda, l'ottimizzazione, la diagnostica e la manutenzione sicura dei sistemi **Debian e Ubuntu**.
 
-## Schede
+Unisce in un'unica applicazione leggera e reattiva funzioni che solitamente richiedono più strumenti separati, offrendo sia un'interfaccia grafica moderna (**Dark Mode** e **Light Mode**) sia una **modalità CLI headless** per script e automazioni.
 
-**Dashboard**: stato del sistema, "Ottimizza ora", accessi rapidi, CPU / RAM / swap / disco con storico a 60 secondi
+---
 
-**Pulizia** (con sottoschede)
-- Pulizia: file temporanei, cache APT, pacchetti orfani, browser (cache, cronologia, cookie), cache RAM, log, cache utente, cestino
-- Pulizia avanzata: cartelle vuote e file da 0 byte nella home, con elenco, selezione e conferma prima di eliminare
-- Risparmio energetico (solo notebook): Bilanciato, Performance, Powersave, Origine, con spiegazioni per principianti. Su un PC fisso la scheda lo segnala e non fa nulla
-- Servizi di sistema: verifica stato, avvia, arresta
-- Ottimizzazione performance: analisi avvio, swappiness, TRIM, processi pesanti, ottimizza tutto
-- Log sistema: ultimi eventi di journalctl
+## Caratteristiche principali
 
-**Fixer**: controlli automatici con "Correggi" + riparazione APT, dipendenze, chiavi, integrità
+### Pulizia e gestione dello spazio
+* **Pulizia multi-ecosistema:** Cache APT, pacchetti orfani/residui (`rc`), vecchi log di sistema, cache utente e browser, miniature e file temporanei.
+* **Gestione Snap e Flatpak:** Analisi e pulizia dei pacchetti inutilizzati o delle revisioni obsolete.
+* **Sviluppo & Container:** Pulizia mirata degli ambienti di sviluppo (Docker, Cargo, npm, pip) per recuperare rapidamente gigabyte occupati da build e cache.
+* **Analizzatore Disco:** Esplorazione visuale dello spazio occupato su disco per individuare cartelle e file più pesanti.
+* **File duplicati e Residui di sistema:** Rilevamento e rimozione guidata di duplicati e file abbandonati.
 
-**Aggiornamenti**: cerca e installa gli aggiornamenti dei pacchetti APT e delle app Flatpak (solo APT, solo Flatpak o tutto insieme), con avviso se serve riavviare
+### Sicurezza, controllo e ripristino
+* **Indicatori visivi del livello di rischio:** Ogni modulo è classificato chiaramente con pallini e badge di stato (**Sicura**, **Con cautela**, **Delicato**) per operare sempre con consapevolezza.
+* **Quarantena / Ripristino (Undo):** I file eliminati dai moduli supportati vengono spostati in una quarantena temporanea con scadenza automatica, permettendo il ripristino nella posizione originale in caso di ripensamenti.
+* **Snapshot pre-pulizia:** Integrazione con **Timeshift** e **Snapper** per mettere al sicuro il sistema prima di interventi delicati.
+* **Gestione Kernel & `/boot`:** Rimozione sicura dei vecchi kernel con protezione automatica del kernel attualmente in esecuzione.
+* **Privacy & Telemetry Guard:** Scansione di demoni di telemetria/diagnostica e blocco rapido dei domini di tracciamento noti.
+* **Sicurezza, Hardening e File Shredder:** Controlli di sicurezza del sistema, permessi utente e cancellazione sicura dei file sensibili.
 
-**Sistema**
-- Info hardware: Info / Hardware e rete / Memoria RAM (marca, tipo e velocità dei moduli, con dmidecode) / Scheda video (modello, driver, memoria video, monitor) / Tutti i componenti (scheda madre, audio, rete, dischi, USB, input, webcam, monitor, batteria) / About
-- Disco: tipo di disco (SSD, NVMe, HDD, USB...), analisi SMART, file grandi, spazio, stress test
-- Processi, App installate (APT/Flatpak), Ottimizza RAM (zRAM)
-- Temperature, con pulsante "Modalità di raffreddamento"
-- Rete: diagnosi gateway/DNS/Internet e ripristino
+### Prestazioni, avvio e diagnostica
+* **Gestore Avvio & Autostart Avanzato:** Analisi dei tempi di boot (`systemd-analyze`) e gestione dei programmi all'avvio.
+* **Fixer e Storico APT:** Risoluzione guidata dei problemi di pacchetti/dipendenze e consultazione della cronologia delle operazioni APT.
+* **Hardware, Temperature e Dischi:** Monitoraggio di temperature, risorse, RAM, rete e stato dei dischi.
+* **Pianificatore `systemd`:** Automazione periodica delle operazioni di manutenzione.
+* **Report Diagnostico e Guida integrata:** Esportazione di report di sistema (HTML / JSON), supporto **multilingua** completo e guida interna consultabile in qualsiasi momento.
 
-**Amministratore**
-- Kernel manager, governor CPU, swappiness, GRUB (con **Anteprima** delle modifiche), recovery
-- Repository e driver: Driver manager che rileva l'hardware e propone i pacchetti
-- Startup, permessi utente
+---
 
-**Sicurezza e dati**: firewall UFW, sicurezza avanzata, backup, file shredder, log debug, impostazioni (lingua inclusa)
+## Requisiti e compilazione
 
-**Spiegazioni per principianti**: ogni scheda importante ha in alto un riquadro blu che spiega in breve a cosa serve e come usarla.
+### Dipendenze di sistema (Debian / Ubuntu)
+Assicurati di avere installati la toolchain **Rust** (`cargo`) e le librerie di sviluppo necessarie per la GUI:
 
-**Errori di sistema**: in Log debug (e nel Log sistema) gli errori noti del journal vengono spiegati e accompagnati da una soluzione. Le regole sono in `src/solutions.rs`.
-
-**Chiusura**: premendo la X in alto a destra il programma chiede conferma e, se c'è un'operazione in corso (pulizia, aggiornamento...), avvisa prima di chiudere.
-
-**Guida**: spiega in linguaggio semplice tutte le funzioni di DebUtility, con avvertenze e ricerca. Per aggiungere o modificare un testo della guida vedi `src/pages_guide.rs`, poi rigenera le traduzioni come descritto sotto
-
-## Compilare
-
-Installa la toolchain con rustup:
-
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-Dipendenze di sviluppo:
-
-    sudo apt install build-essential pkg-config libxkbcommon-dev libwayland-dev \
-        libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev
-
-Build ed esecuzione:
-
-    cargo build --release
-    ./target/release/debutility
-
-Per compatibilità con tutte le Debian compila sulla versione più vecchia che vuoi supportare.
-
-## Lingue
-
-All'avvio DebUtility usa la lingua del sistema (variabile `LANG`); si cambia in Impostazioni → Lingua.
-
-Le traduzioni stanno in `lang/strings.tsv` (incorporato nel programma): italiano, English, Español, Français, Deutsch.
-Per correggerle o aggiungere una lingua:
-
-1. modifica `lang/strings.src` (formato `italiano ::: English ::: Español ::: Français ::: Deutsch`)
-2. esegui, dalla cartella del progetto:
-
-       python3 tools/extract_keys.py     # rigenera l'elenco delle frasi (lang/keys.txt)
-       python3 tools/build_strings.py    # rigenera lang/strings.tsv e segnala frasi mancanti
-
-3. per una nuova lingua aggiungi una colonna e una voce in `LANGS` in `src/i18n.rs`
-
-Le frasi senza traduzione vengono mostrate in italiano. I messaggi di registro e l'output dei comandi di sistema restano nella lingua originale.
-
-## Pacchetti opzionali usati a runtime
-
-`policykit-1` / `pkexec`, `zenity` (selettore di file e cartelle del File shredder), `dmidecode` (marca e tipo della RAM), `mesa-utils` (informazioni OpenGL), `x11-xserver-utils` (xrandr, monitor), `pciutils`, `usbutils`, `smartmontools`, `ufw`, `timeshift`, `flatpak`, `lm-sensors`, `rsync`, `power-profiles-daemon` (risparmio energetico).
-
-## Sicurezza
-
-La password di root non viene mai salvata: le operazioni privilegiate passano da `pkexec` (Polkit). Le operazioni distruttive chiedono sempre conferma.
-
-## Compatibilità
-
-DebUtility legge configurazione, pianificazione e stato dell'ultima esecuzione anche dai vecchi percorsi `debclean`; al primo salvataggio scrive i nuovi percorsi `debutility`. Le vecchie unità systemd utente `debclean-maint.timer` e `debclean-maint.service` vengono riconosciute e disattivate quando si configura il nuovo timer.
+```bash
+sudo apt update
+sudo apt install -y build-essential pkg-config libssl-dev libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev
