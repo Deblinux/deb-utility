@@ -73,16 +73,24 @@ for blk in re.finditer(r'let profiles.*?\n        \];', s, re.S):
             add(l.group(1))
 for l in re.finditer(r'\(\s*' + LIT + r',\s*format!\(', s):
     add(l.group(1))
-for k in ['Cartelle vuote', "Cartelle che non contengono nulla. Eliminarle non fa perdere dati e rende l'archivio più ordinato.", 'File vuoti (0 byte)', 'File che non contengono dati. Spesso sono residui di operazioni interrotte.', "Attenzione: alcuni programmi usano file vuoti di proposito. Controlla l'elenco e deseleziona quelli che vuoi tenere.", 'cartelle vuote verranno eliminate definitivamente:', 'file vuoti verranno eliminati definitivamente:', 'Avvio silenzioso', 'Schermata grafica di avvio', 'Utile solo se hai problemi con la grafica', 'Swap compresso in RAM', 'Consigliato con driver NVIDIA proprietario', "Pulizia rapida della cache utente all'avvio", "Per sicurezza DebClean non salva la password di root: le operazioni privilegiate usano pkexec e il sistema chiede l'autorizzazione tramite la finestra di Polkit."] + ["Performance", "Origine", "In hold: ", " pacchetti rimossi hanno ancora file di configurazione", "Occupato", " — usa la scheda Pulizia per liberare spazio", "In carica", "Scarica", "Carica completa", "Stato sconosciuto", "n/d", "Online", "Offline", "(nessun output)"]:
+for k in ['Cartelle vuote', "Cartelle che non contengono nulla. Eliminarle non fa perdere dati e rende l'archivio più ordinato.", 'File vuoti (0 byte)', 'File che non contengono dati. Spesso sono residui di operazioni interrotte.', "Attenzione: alcuni programmi usano file vuoti di proposito. Controlla l'elenco e deseleziona quelli che vuoi tenere.", 'cartelle vuote verranno eliminate definitivamente:', 'file vuoti verranno eliminati definitivamente:', 'Avvio silenzioso', 'Schermata grafica di avvio', 'Utile solo se hai problemi con la grafica', 'Swap compresso in RAM', 'Consigliato con driver NVIDIA proprietario', "Pulizia rapida della cache utente all'avvio", "Per sicurezza DebUtility non salva la password di root: le operazioni privilegiate usano pkexec e il sistema chiede l'autorizzazione tramite la finestra di Polkit."] + ["Performance", "Origine", "In hold: ", " pacchetti rimossi hanno ancora file di configurazione", "Occupato", " — usa la scheda Pulizia per liberare spazio", "In carica", "Scarica", "Carica completa", "Stato sconosciuto", "n/d", "Online", "Offline", "(nessun output)"]:
     add(k)
+
+s = open('src/timers_state.rs').read()
+# Etichette traducibili delle categorie e delle frequenze del Pianificatore.
+for m in re.finditer(r'\(\s*"[^"]+"\s*,\s*"((?:[^"\\]|\\.)*)"\s*,\s*(?:true|false)\s*\)', s):
+    add(m.group(1))
+for m in re.finditer(r'\(\s*"[^"]+"\s*,\s*"((?:[^"\\]|\\.)*)"\s*\)', s):
+    add(m.group(1))
 
 s = open('src/pages_guide.rs').read()
 a = s.index('// GUIDE-BEGIN'); b = s.index('// GUIDE-END')
 for m in re.finditer(LIT, s[a:b]):
     add(m.group(1))
 s = open('src/solutions.rs').read()
-a = s.index('// SOLUTIONS-BEGIN'); b = s.index('// SOLUTIONS-END')
-for m in re.finditer(LIT, s[a:b]):
-    add(m.group(1))
+if '// SOLUTIONS-BEGIN' in s and '// SOLUTIONS-END' in s:
+    a = s.index('// SOLUTIONS-BEGIN'); b = s.index('// SOLUTIONS-END')
+    for m in re.finditer(LIT, s[a:b]):
+        add(m.group(1))
 open('lang/keys.txt', 'w').write('\n'.join(keys) + '\n')
 print(len(keys), 'chiavi')
