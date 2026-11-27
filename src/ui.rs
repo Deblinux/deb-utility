@@ -1043,6 +1043,7 @@ pub fn sidebar_item(
     name: &str,
     full_name: &str,
     selected: bool,
+    enabled: bool,
 ) -> bool {
     // Geometria del pallino: il testo può occupare solo lo spazio che lo precede.
     const DOT_INSET: f32 = 15.0;
@@ -1050,28 +1051,41 @@ pub fn sidebar_item(
     const DOT_CLEARANCE: f32 = 20.0;
     const TEXT_LEFT: f32 = 54.0;
 
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
+    let sense = if enabled { Sense::click() } else { Sense::hover() };
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), sense);
     let dark_mode = ui.visuals().dark_mode;
     let risk = page_risk(page);
-    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
-    let resp = resp.on_hover_text(format!(
-        "{}\n{}: {}",
-        full_name,
-        t("Livello di rischio"),
-        risk.label()
-    ));
+    let resp = if enabled {
+        resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+    } else {
+        resp.on_hover_cursor(egui::CursorIcon::Wait)
+    };
+    let tooltip = if enabled {
+        format!("{}\n{}: {}", full_name, t("Livello di rischio"), risk.label())
+    } else {
+        format!(
+            "{}\n{}: {}\n{}",
+            full_name,
+            t("Livello di rischio"),
+            risk.label(),
+            t("Menu bloccato: attendi il completamento dell'operazione.")
+        )
+    };
+    let resp = resp.on_hover_text(tooltip);
 
     let p = ui.painter();
     if selected {
         let sel_bg = if dark_mode { Color32::from_rgb(34, 54, 66) } else { Color32::from_rgb(209, 224, 234) };
         p.rect_filled(rect, 10.0, sel_bg);
-    } else if resp.hovered() {
+    } else if enabled && resp.hovered() {
         let hover_bg = if dark_mode { Color32::from_white_alpha(16) } else { Color32::from_black_alpha(14) };
         p.rect_filled(rect, 10.0, hover_bg);
     }
     let icon = Rect::from_center_size(Pos2::new(rect.left() + 30.0, rect.center().y), vec2(30.0, 30.0));
     page_icon(p, icon.center(), 27.0, page);
-    let text_color = if dark_mode {
+    let text_color = if !enabled {
+        alpha(text_primary(), 110)
+    } else if dark_mode {
         if selected { Color32::WHITE } else { text_primary() }
     } else {
         text_primary()
@@ -1107,7 +1121,7 @@ pub fn sidebar_item(
         DOT_RADIUS,
         Stroke::new(1.0_f32, alpha(if dark_mode { Color32::WHITE } else { Color32::BLACK }, 90)),
     );
-    resp.clicked()
+    enabled && resp.clicked()
 }
 
 pub fn tile(ui: &mut egui::Ui, page: Page, title: &str, sub: &str) -> bool {

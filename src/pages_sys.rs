@@ -3,6 +3,7 @@ use crate::pages_clean::POWER_SAVE_ORIG;
 use crate::update_check;
 use crate::{clean_and_scan_job, cleaner, cmd_job, health, ui, util, App, Job, Msg, Page};
 use eframe::egui;
+use egui_extras::{Column, TableBuilder};
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
@@ -61,8 +62,26 @@ pub fn net_test() -> NetStatus {
 }
 
 pub fn read_procs() -> Vec<ProcRow> {
-    let (_, o) = util::run_shell("ps -eo pid,user:12,pcpu,pmem,comm --sort=-pcpu --no-headers | head -80", false);
-    o.lines()
+    // Avviamo `ps` direttamente per conoscere il suo PID: lo escludiamo dai
+    // risultati, altrimenti il processo usato per leggere la lista poteva
+    // comparire in cima con il 100% di CPU.
+    let mut cmd = std::process::Command::new("ps");
+    cmd.args(["-eo", "pid,user:12,pcpu,pmem,comm", "--sort=-pcpu", "--no-headers"])
+        .env("LC_ALL", "C")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    let child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let ps_pid = child.id().to_string();
+    let text = child
+        .wait_with_output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    text.lines()
+        .filter(|l| l.split_whitespace().next() != Some(ps_pid.as_str()))
+        .take(80)
         .filter_map(|l| {
             let mut it = l.split_whitespace();
             Some(ProcRow {
@@ -779,24 +798,42 @@ impl App {
         });
         let f = self.proc_filter.to_lowercase();
         let me = util::username();
+        let rows: Vec<&ProcRow> = self
+            .procs
+            .iter()
+            .filter(|p| f.is_empty() || p.cmd.to_lowercase().contains(&f) || p.pid == f)
+            .collect();
         let mut act: Option<(String, &'static str, bool)> = None;
-        egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
-            egui::Grid::new("procs").striped(true).num_columns(6).show(ui, |ui| {
-                for h in ["PID", "Utente", "%CPU", "%MEM", "Comando", ""] {
-                    ui.strong(t(h));
-                }
-                ui.end_row();
-                for p in self
-                    .procs
-                    .iter()
-                    .filter(|p| f.is_empty() || p.cmd.to_lowercase().contains(&f) || p.pid == f)
-                {
-                    ui.label(&p.pid);
-                    ui.label(&p.user);
-                    ui.label(&p.cpu);
-                    ui.label(&p.mem);
-                    ui.label(&p.cmd);
-                    ui.horizontal(|ui| {
+        TableBuilder::new(ui)
+            .id_salt("procs")
+            .striped(true)
+            .vscroll(true)
+            .max_scroll_height(300.0)
+            .auto_shrink([false, false])
+            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+            .column(Column::exact(70.0))
+            .column(Column::initial(110.0).at_least(80.0))
+            .column(Column::exact(65.0))
+            .column(Column::exact(65.0))
+            .column(Column::remainder().at_least(180.0))
+            .column(Column::exact(120.0))
+            .header(20.0, |mut header| {
+                header.col(|ui| { ui.strong(t("PID")); });
+                header.col(|ui| { ui.strong(t("Utente")); });
+                header.col(|ui| { ui.strong(t("%CPU")); });
+                header.col(|ui| { ui.strong(t("%MEM")); });
+                header.col(|ui| { ui.strong(t("Comando")); });
+                header.col(|ui| { ui.strong(t("Azioni")); });
+            })
+            .body(|body| {
+                body.rows(21.0, rows.len(), |mut row| {
+                    let p = rows[row.index()];
+                    row.col(|ui| { ui.label(&p.pid); });
+                    row.col(|ui| { ui.label(&p.user); });
+                    row.col(|ui| { ui.label(&p.cpu); });
+                    row.col(|ui| { ui.label(&p.mem); });
+                    row.col(|ui| { ui.label(&p.cmd); });
+                    row.col(|ui| {
                         if ui.small_button(t("Termina")).clicked() {
                             act = Some((p.pid.clone(), "TERM", p.user != me));
                         }
@@ -804,10 +841,8 @@ impl App {
                             act = Some((p.pid.clone(), "KILL", p.user != me));
                         }
                     });
-                    ui.end_row();
-                }
+                });
             });
-        });
         if let Some((pid, sig, privileged)) = act {
             if pid.chars().all(|c| c.is_ascii_digit()) {
                 self.spawn(ctx, cmd_job("proc", format!("kill -{sig} {pid}"), privileged));
@@ -845,16 +880,34 @@ impl App {
             .filter(|p| p.apt == apt && (f.is_empty() || p.name.to_lowercase().contains(&f)))
             .collect();
         ui.label(format!("{} {}{}", rows.len(), t("pacchetti"), if rows.len() > 300 { t(" (mostrati i primi 300: usa la ricerca)") } else { "" }));
-        egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
-            for p in rows.iter().take(300) {
-                ui.horizontal(|ui| {
-                    if ui.small_button("🗑").on_hover_text(t("Disinstalla")).clicked() {
-                        rm = Some(p.name.clone());
-                    }
-                    ui.label(format!("{}   {}", p.name, p.version));
+        let shown = rows.len().min(300);
+        TableBuilder::new(ui)
+            .id_salt(if apt { "apps_apt" } else { "apps_flatpak" })
+            .striped(true)
+            .vscroll(true)
+            .max_scroll_height(300.0)
+            .auto_shrink([false, false])
+            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+            .column(Column::exact(36.0))
+            .column(Column::remainder().at_least(180.0))
+            .column(Column::initial(120.0).at_least(90.0))
+            .header(20.0, |mut header| {
+                header.col(|_| {});
+                header.col(|ui| { ui.strong(t("Pacchetto")); });
+                header.col(|ui| { ui.strong(t("Versione")); });
+            })
+            .body(|body| {
+                body.rows(21.0, shown, |mut row| {
+                    let p = rows[row.index()];
+                    row.col(|ui| {
+                        if ui.small_button("🗑").on_hover_text(t("Disinstalla")).clicked() {
+                            rm = Some(p.name.clone());
+                        }
+                    });
+                    row.col(|ui| { ui.label(&p.name); });
+                    row.col(|ui| { ui.label(&p.version); });
                 });
-            }
-        });
+            });
         if let Some(name) = rm {
             let q = util::shq(&name);
             let script = if apt {

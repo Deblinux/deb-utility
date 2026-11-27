@@ -22,7 +22,7 @@ const GUIDE: &[(&str, &[Entry])] = &[
             ),
             (
                 "Barre di avanzamento",
-                "Le operazioni lunghe (scansioni, pulizie, aggiornamenti, rimozione kernel) mostrano una barra con percentuale e la descrizione del passaggio in corso. Puoi continuare a usare l'interfaccia: i risultati compaiono automaticamente quando il lavoro in background termina.",
+                "Le operazioni lunghe (scansioni, pulizie, aggiornamenti, installazioni, rimozione repository, scansione e rimozione dei punti di ripristino) mostrano una barra con percentuale e la descrizione del passaggio in corso. Finché il lavoro è attivo il menu laterale sinistro è disabilitato e compare un avviso: attendi il completamento prima di cambiare scheda. Il menu si riabilita automaticamente appena l'operazione finisce e i risultati compaiono da soli.",
                 "",
             ),
         ],
@@ -202,8 +202,13 @@ const GUIDE: &[(&str, &[Entry])] = &[
             ),
             (
                 "Repository e driver",
-                "Driver manager rileva l'hardware e propone i driver e i firmware da installare. App repository mostra e aggiunge le sorgenti software, Repository Manager abilita i Debian Backports e aggiorna gli elenchi dei pacchetti, e il Gestore Chiavi GPG verifica la scadenza delle chiavi, le rinnova o permette di disabilitare e riabilitare rapidamente chiavi e repository associati.",
+                "Driver manager rileva l'hardware e propone i driver e i firmware da installare. App repository mostra, aggiunge, rimuove e disabilita le sorgenti software; Repository Manager abilita i Debian Backports, aggiorna gli elenchi dei pacchetti e offre gli stessi strumenti di rimozione sicura. Il Gestore Chiavi GPG verifica la scadenza delle chiavi, le rinnova o permette di disabilitare e riabilitare rapidamente chiavi e repository associati.",
                 "Aggiungi solo repository di cui ti fidi e fai attenzione quando disabiliti o riabiliti sorgenti APT.",
+            ),
+            (
+                "Rimozione e disabilitazione repository",
+                "In «Repository e driver» → «App repository» o «Repository Manager» puoi selezionare le righe di /etc/apt/sources.list e dei file .list in /etc/apt/sources.list.d/, oppure interi file .list/.sources. «Rimuovi selezionati» elimina le righe o i file, «Disabilita selezionati» commenta le righe o rinomina i file con il suffisso .disabled. Prima di ogni modifica DebUtility crea un backup in /etc/apt/debutility-backups/ con pkexec, lavora in background senza bloccare l'interfaccia, poi aggiorna gli elenchi APT e l'elenco visualizzato.",
+                "Controlla bene cosa selezioni: rimuovere repository ufficiali può lasciare il sistema senza aggiornamenti. I symlink e i percorsi fuori da /etc/apt/sources.list* vengono ignorati per evitare modifiche non sicure. Se apt-get update segnala errori, ripristina il file dal backup.",
             ),
             (
                 "Startup",
@@ -282,8 +287,13 @@ const GUIDE: &[(&str, &[Entry])] = &[
             ),
             (
                 "Backup",
-                "File e cartelle copia i tuoi dati in una destinazione a scelta. Pacchetti di sistema salva l'elenco dei pacchetti e dei repository e li ripristina dopo una reinstallazione. Punti di ripristino crea e ripristina istantanee dell'intero sistema con Timeshift.",
+                "File e cartelle copia i tuoi dati in una destinazione a scelta. Pacchetti di sistema salva l'elenco dei pacchetti e dei repository e li ripristina dopo una reinstallazione. Punti di ripristino crea e ripristina istantanee dell'intero sistema con Timeshift e permette di elencare e rimuovere quelle esistenti.",
                 "Ripristinare un punto riporta il sistema indietro: le modifiche successive vanno perse.",
+            ),
+            (
+                "Gestione dei punti di ripristino",
+                "In «Backup → Punti di ripristino» premi «Aggiorna elenco»: DebUtility legge `timeshift --list --scripted` e cerca anche le cartelle snapshot in /timeshift/snapshots e nella posizione dei backup esterni montati. La tabella mostra nome, data, tipo e dimensione di ogni punto, con selezione singola o multipla. «Rimuovi selezionati» cancella solo gli elementi spuntati, «Rimuovi tutto» li rimuove tutti: in entrambi i casi compare una conferma e la rimozione viene eseguita con pkexec. Durante scansione e cancellazione la barra di avanzamento mostra la percentuale e il menu laterale resta bloccato; a fine operazione l'elenco si aggiorna da solo. Se Timeshift non è installato vengono comunque mostrate le cartelle snapshot presenti.",
+                "Pericolo: eliminare uno snapshot è irreversibile e può togliere l'unica copia di sicurezza del sistema. Controlla nome, data e dimensione prima di confermare; non usare la rimozione tutto se hai bisogno di tornare a una versione precedente.",
             ),
             (
                 "Kit di Migrazione (1-Click)",

@@ -1,5 +1,5 @@
-use crate::i18n::{self, t, tf};
-use crate::{ui, util, App, Msg};
+use crate::i18n::{self, t, tf, tr};
+use crate::{restore_delete_job, restore_scan_job, ui, util, App, Msg};
 use eframe::egui;
 use std::path::{Path, PathBuf};
 
@@ -212,29 +212,148 @@ pub(crate) fn ui_firewall(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 });
             }
             _ => {
-                ui.label(t("Punti di ripristino dell'intero sistema (usa Timeshift)."));
-                let pre = "command -v timeshift >/dev/null 2>&1 || { echo 'Timeshift non installato: usa il pulsante Installa Timeshift'; exit 1; }; ";
+                ui::hint(
+                    ui,
+                    "Qui vedi gli snapshot di Timeshift e le cartelle di ripristino presenti sul sistema. Puoi selezionarne uno o più oppure rimuoverli tutti: prima della cancellazione viene chiesta conferma e l'operazione usa pkexec. Premi «Aggiorna elenco» per cercare i punti disponibili.",
+                );
                 ui.horizontal_wrapped(|ui| {
-                    self.run_btn(ui, ctx, t("➕ Crea punto di ripristino"), "backup",
-                        &format!("{pre}timeshift --create --comments 'DebUtility' --scripted"), true, None);
-                    self.run_btn(ui, ctx, t("📋 Elenca punti"), "backup",
-                        &format!("{pre}timeshift --list --scripted"), true, None);
-                    self.run_btn(ui, ctx, t("Installa Timeshift"), "backup", "apt-get -y install timeshift", true, None);
+                    if ui.add_enabled(!self.busy, egui::Button::new(t("🔄 Aggiorna elenco"))).clicked() {
+                        self.restore_msg = None;
+                        self.spawn(ctx, restore_scan_job());
+                    }
+                    if ui.add_enabled(!self.busy && !self.restore_points.is_empty(), egui::Button::new(t("☑ Seleziona tutto"))).clicked() {
+                        self.restore_selected = self.restore_points.iter().map(|p| p.id.clone()).collect();
+                    }
+                    if ui.add_enabled(!self.busy && !self.restore_selected.is_empty(), egui::Button::new(t("☐ Deseleziona tutto"))).clicked() {
+                        self.restore_selected.clear();
+                    }
                 });
-                ui.horizontal(|ui| {
-                    ui.label(t("Nome snapshot da ripristinare:"));
-                    ui.text_edit_singleline(&mut self.snap_name);
+                if let Some((msg, is_error)) = &self.restore_msg {
+                    ui.add_space(3.0);
+                    ui.label(
+                        egui::RichText::new(msg.as_str())
+                            .size(12.5)
+                            .color(if *is_error { ui::semantic_text(ui::BAD) } else { ui::accent_text() }),
+                    );
+                }
+
+                ui.add_space(4.0);
+                let points = self.restore_points.clone();
+                let mut selected = self.restore_selected.clone();
+                let mut only: Option<String> = None;
+                ui::card(ui, |ui| {
+                    if points.is_empty() {
+                        ui.label(t("Nessun punto di ripristino trovato. Premi «Aggiorna elenco» per cercare snapshot Timeshift e cartelle di ripristino."));
+                    } else {
+                        ui.label(tf("Punti di ripristino rilevati: {}", &[&points.len()]));
+                        ui.add_space(3.0);
+                        egui::ScrollArea::vertical()
+                            .id_salt("restore_points_scroll")
+                            .max_height(210.0)
+                            .show(ui, |ui| {
+                                egui::Grid::new("restore_points_grid")
+                                    .num_columns(5)
+                                    .spacing([10.0, 4.0])
+                                    .striped(true)
+                                    .show(ui, |ui| {
+                                        ui.strong(t("Selez."));
+                                        ui.strong(t("Nome"));
+                                        ui.strong(t("Data"));
+                                        ui.strong(t("Tipo"));
+                                        ui.strong(t("Dimensione"));
+                                        ui.end_row();
+                                        for p in &points {
+                                            let mut checked = selected.iter().any(|id| id == &p.id);
+                                            if ui.checkbox(&mut checked, "").clicked() {
+                                                if checked {
+                                                    if !selected.contains(&p.id) {
+                                                        selected.push(p.id.clone());
+                                                    }
+                                                } else {
+                                                    selected.retain(|id| id != &p.id);
+                                                }
+                                            }
+                                            // Cliccando il nome si seleziona solo quel punto
+                                            // e lo si propone per il ripristino singolo.
+                                            if ui.button(p.name.as_str()).clicked() {
+                                                only = Some(p.id.clone());
+                                            }
+                                            ui.label(p.date.as_str());
+                                            let kind = tr(&p.kind);
+                                            let type_label = if p.snapshot_type.is_empty() {
+                                                kind
+                                            } else {
+                                                format!("{} · {}", kind, p.snapshot_type)
+                                            };
+                                            ui.label(type_label);
+                                            ui.label(p.size.as_str());
+                                            ui.end_row();
+                                        }
+                                    });
+                            });
+                    }
                 });
-                let name = self.snap_name.trim().to_string();
-                let valid = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c));
-                let script = format!("{pre}timeshift --restore --snapshot {} --scripted --yes", util::shq(&name));
-                ui.add_enabled_ui(valid, |ui| {
-                    self.run_btn(ui, ctx, t("⏪ Ripristina punto"), "backup", &script, true,
-                        Some(t("Ripristinare il sistema a questo punto? Le modifiche successive andranno perse e verrà richiesto un riavvio.")));
+                self.restore_selected = selected;
+                if let Some(id) = only {
+                    self.restore_selected = vec![id.clone()];
+                    self.snap_name = id;
+                }
+
+                ui.add_space(4.0);
+                ui.horizontal_wrapped(|ui| {
+                    let count = self.restore_selected.len();
+                    let label = tf("🗑 Rimuovi selezionati ({})", &[&count]);
+                    if ui.add_enabled(!self.busy && count > 0, egui::Button::new(label)).clicked() {
+                        let chosen: Vec<_> = self.restore_points
+                            .iter()
+                            .filter(|p| self.restore_selected.contains(&p.id))
+                            .cloned()
+                            .collect();
+                        let text = tf(
+                            "Rimuovere {} punti di ripristino selezionati? L'operazione è irreversibile e richiede l'autorizzazione di amministratore.",
+                            &[&chosen.len()],
+                        );
+                        self.confirm = Some((text, restore_delete_job(chosen)));
+                    }
+                    if ui.add_enabled(!self.busy && !self.restore_points.is_empty(), egui::Button::new(t("🗑 Rimuovi tutto"))).clicked() {
+                        let all = self.restore_points.clone();
+                        let text = tf(
+                            "Rimuovere TUTTI i {} punti di ripristino? L'operazione è irreversibile e richiede l'autorizzazione di amministratore.",
+                            &[&all.len()],
+                        );
+                        self.confirm = Some((text, restore_delete_job(all)));
+                    }
+                });
+
+                ui.add_space(6.0);
+                ui::card(ui, |ui| {
+                    ui.label(t("Creazione e ripristino (Timeshift):"));
+                    let pre = "command -v timeshift >/dev/null 2>&1 || { echo 'Timeshift non installato: usa il pulsante Installa Timeshift'; exit 1; }; ";
+                    ui.horizontal_wrapped(|ui| {
+                        self.run_btn(ui, ctx, t("➕ Crea punto di ripristino"), "restore",
+                            &format!("{pre}timeshift --create --comments 'DebUtility' --scripted"), true, None);
+                        self.run_btn(ui, ctx, t("Installa Timeshift"), "restore",
+                            "apt-get -y install timeshift", true, None);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label(t("Nome snapshot da ripristinare:"));
+                        ui.text_edit_singleline(&mut self.snap_name);
+                    });
+                    let name = self.snap_name.trim().to_string();
+                    let valid = crate::restore_points::valid_id(&name);
+                    let script = format!("{pre}timeshift --restore --snapshot {} --scripted --yes", util::shq(&name));
+                    ui.add_enabled_ui(valid, |ui| {
+                        self.run_btn(ui, ctx, t("⏪ Ripristina punto"), "restore", &script, true,
+                            Some(t("Ripristinare il sistema a questo punto? Le modifiche successive andranno perse e verrà richiesto un riavvio.")));
+                    });
                 });
             }
         }
-        self.show_out(ui, "backup", 260.0);
+        if self.sub == 2 {
+            self.show_out(ui, "restore", 170.0);
+        } else {
+            self.show_out(ui, "backup", 260.0);
+        }
     }
 
     // ----- Log debug

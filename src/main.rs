@@ -47,6 +47,7 @@ mod update_check;
 mod pages_themes;
 mod pages_system_editor;
 mod progress;
+mod restore_points;
 use eframe::egui;
 use i18n::{t, tf};
 use hwinfo::{RamModule, Section};
@@ -192,6 +193,8 @@ pub enum Msg {
     Sizes(Vec<Option<u64>>),
     Checks(Vec<health::Check>),
     Out(&'static str, String),
+    /// Elenco aggiornato delle sorgenti APT selezionabili nella gestione repository.
+    RepoEntries(Vec<pages_admin::RepoEntry>),
     Net(NetStatus),
     Procs(Vec<ProcRow>),
     Pkgs(Vec<Pkg>),
@@ -269,6 +272,10 @@ pub enum Msg {
     QuarantineItems(Vec<quarantine::Item>),
     /// Esito di un'operazione sulla quarantena (`true` = errore).
     QuarantineMessage(String, bool),
+    /// Elenco aggiornato dei punti di ripristino (Timeshift + cartelle).
+    RestorePoints(Vec<restore_points::Point>),
+    /// Esito della scansione/rimozione dei punti di ripristino (`true` = errore).
+    RestoreMessage(String, bool),
 }
 
 #[derive(Clone)]
@@ -298,6 +305,8 @@ fn job_label(key: &'static str) -> &'static str {
         "adv_clean" => t("Pulizia dei residui in corso..."),
         "history" => t("Operazione APT in corso..."),
         "quarantine" => t("Operazioni sulla quarantena in corso..."),
+        "restore_scan" => t("Ricerca dei punti di ripristino in corso..."),
+        "restore_delete" => t("Rimozione dei punti di ripristino in corso..."),
         "services" => t("Operazione sui servizi in corso..."),
         "boot" => t("Operazione su GRUB e avvio in corso..."),
         "kernel_boot" => t("Rimozione kernel selezionati in corso..."),
@@ -408,6 +417,90 @@ pub fn scan_sizes_job(id: &'static str, label: &'static str) -> Job {
     })
 }
 
+/// Scansione dei punti di ripristino con barra di avanzamento.
+pub fn restore_scan_job() -> Job {
+    Box::new(move |ch: &Chan| {
+        ch.send(Msg::Out("restore", String::new()));
+        ch.send(Msg::RestoreMessage(
+            t("Scansione dei punti di ripristino...").to_string(),
+            false,
+        ));
+        let mut prog = ProgressReporter::start(
+            ch,
+            "restore_scan",
+            t("Ricerca dei punti di ripristino in corso..."),
+        );
+        let scan = restore_points::scan(&mut |fraction, detail| prog.set(fraction, detail));
+        let count = scan.points.len();
+        ch.send(Msg::Log(tf("Scansione punti di ripristino: {} trovati.", &[&count])));
+        ch.send(Msg::RestorePoints(scan.points));
+        let msg = if count == 0 {
+            t("Nessun punto di ripristino trovato.").to_string()
+        } else {
+            tf("Trovati {} punti di ripristino.", &[&count])
+        };
+        ch.send(Msg::RestoreMessage(msg, false));
+        prog.finish(t("Scansione completata"));
+    })
+}
+
+/// Rimozione (confermata) dei punti di ripristino selezionati o di tutti.
+/// Usa un unico `pkexec` per tutta l'operazione e aggiorna l'elenco a fine job.
+pub fn restore_delete_job(points: Vec<restore_points::Point>) -> Job {
+    Box::new(move |ch: &Chan| {
+        let total = points.len();
+        ch.send(Msg::Out("restore", String::new()));
+        let mut prog = ProgressReporter::start(
+            ch,
+            "restore_delete",
+            t("Rimozione dei punti di ripristino in corso..."),
+        );
+        prog.status(t("Attendo l'autorizzazione di amministratore..."));
+        ch.send(Msg::Log("▶ timeshift --delete / rimozione cartelle snapshot".into()));
+        let script = restore_points::delete_script(&points);
+        let mut all = String::new();
+        let ok = util::run_stream(&script, true, |line, commit| {
+            if commit {
+                all.push_str(line);
+                all.push('\n');
+            }
+            let trimmed = line.trim();
+            if let Some(index) = trimmed.strip_prefix("DU_RP_").and_then(|s| s.parse::<usize>().ok()) {
+                if index < total {
+                    let name = points[index].name.clone();
+                    prog.step(index + 1, total, tf("Rimozione: {}", &[&name]));
+                }
+            } else if trimmed != "DU_RP_DONE" {
+                prog.track_line(line);
+            }
+            // I marcatori interni servono solo all'avanzamento: non sporcano
+            // il pannello di output visibile all'utente.
+            if !trimmed.starts_with("DU_RP_") {
+                ch.send(Msg::Live("restore", line.to_string(), commit));
+            }
+        });
+        let mark = if ok { "✔" } else { "✘" };
+        ch.send(Msg::Log(format!(
+            "{mark} {}",
+            util::tail(all.trim(), 3).replace('\n', " | ")
+        )));
+        ch.send(Msg::Out("restore", all));
+
+        prog.set(0.8, t("Aggiornamento dell'elenco..."));
+        let scan = restore_points::scan(&mut |fraction, detail| {
+            prog.set(0.8 + 0.2 * fraction, detail)
+        });
+        ch.send(Msg::RestorePoints(scan.points));
+        let msg = if ok {
+            t("Punti di ripristino rimossi. Elenco aggiornato.")
+        } else {
+            t("Rimozione terminata con errori: controlla l'output.")
+        };
+        ch.send(Msg::RestoreMessage(msg.to_string(), !ok));
+        prog.finish(if ok { t("Rimozione completata") } else { t("Operazione terminata con errori") });
+    })
+}
+
 pub struct App {
     page: Page,
     sub: usize,
@@ -417,6 +510,10 @@ pub struct App {
     checks: Vec<health::Check>,
     info: info::SysInfo,
     log: String,
+    /// Inizio dei messaggi della scheda corrente: la barra di stato ignorava
+    /// i messaggi vecchi, così cambiando pagina non restano scritte come
+    /// "Treemap aggiornata." di un'altra sezione.
+    status_from: usize,
     log_pause: bool,
     log_frozen: String,
     busy: bool,
@@ -463,6 +560,7 @@ pub struct App {
     swappiness: u32,
     grub_line: String,
     repo_line: String,
+    repo_entries: Vec<pages_admin::RepoEntry>,
     drv_hw: Vec<(String, String)>,
     drv: Vec<DriverProp>,
     startup: Vec<StartEntry>,
@@ -470,6 +568,11 @@ pub struct App {
     backup_src: String,
     backup_dst: String,
     snap_name: String,
+    /// Punti di ripristino rilevati nella sottoscheda Backup.
+    restore_points: Vec<restore_points::Point>,
+    /// Id dei punti selezionati nella tabella (selezione singola o multipla).
+    restore_selected: Vec<String>,
+    restore_msg: Option<(String, bool)>,
     shred_path: String,
     shred_passes: u32,
     cfg: pages_sec::Config,
@@ -591,6 +694,7 @@ impl App {
             checks: Vec::new(),
             info: info::SysInfo::new(),
             log: String::new(),
+            status_from: 0,
             log_pause: false,
             log_frozen: String::new(),
             busy: false,
@@ -635,6 +739,7 @@ impl App {
             swappiness: 60,
             grub_line: String::new(),
             repo_line: String::new(),
+            repo_entries: Vec::new(),
             drv_hw: Vec::new(),
             drv: Vec::new(),
             startup: Vec::new(),
@@ -642,6 +747,9 @@ impl App {
             backup_src: format!("{home}/Documenti"),
             backup_dst: format!("{home}/Backup-DebUtility"),
             snap_name: String::new(),
+            restore_points: Vec::new(),
+            restore_selected: Vec::new(),
+            restore_msg: None,
             shred_path: String::new(),
             shred_passes: 3,
             cfg,
@@ -1157,9 +1265,21 @@ impl App {
         active.iter().any(|p| !p.done)
     }
 
+    /// `true` mentre gira un'operazione con avanzamento (anche in background).
+    /// Usato per bloccare il menu laterale: cambiare scheda a metà job può
+    /// nascondere lo stato o avviare un'azione sovrapposta.
+    pub(crate) fn operation_in_progress(&self) -> bool {
+        self.busy
+            || self.progress.values().any(|p| !p.done && p.visible())
+            || self.dev_progress.is_some()
+            || self.kb_progress.is_some()
+    }
+
     fn enter(&mut self, ctx: &egui::Context, p: Page) {
         self.page = p;
         self.sub = 0;
+        // La barra di stato riparte da "Pronto" a ogni cambio di scheda.
+        self.status_from = self.log.len();
         match p {
             Page::Apps => self.load_pkgs(ctx),
             Page::Kernel => {
@@ -1351,6 +1471,7 @@ impl App {
                             cut += 1;
                         }
                         self.log.drain(..cut);
+                        self.status_from = 0;
                     }
                 }
                 Msg::Busy(b) => {
@@ -1404,6 +1525,7 @@ impl App {
                     self.out.insert(k, text);
                     self.live.remove(k);
                 }
+                Msg::RepoEntries(entries) => self.repo_entries = entries,
                 Msg::Live(k, text, commit) => {
                     if commit {
                         let o = self.out.entry(k).or_default();
@@ -1597,6 +1719,16 @@ impl App {
                     self.quarantine_msg = Some((msg.clone(), is_error));
                     self.log.push_str(&format!("{} {}\n", if is_error { "✘" } else { "✔" }, msg));
                 }
+                Msg::RestorePoints(points) => {
+                    // La selezione può contenere id rimossi: mantieni solo quelli
+                    // ancora presenti nell'elenco aggiornato.
+                    self.restore_selected.retain(|id| points.iter().any(|p| p.id == *id));
+                    self.restore_points = points;
+                }
+                Msg::RestoreMessage(msg, is_error) => {
+                    self.restore_msg = Some((msg.clone(), is_error));
+                    self.log.push_str(&format!("{} {}\n", if is_error { "✘" } else { "✔" }, msg));
+                }
            }
         }
         
@@ -1668,12 +1800,15 @@ impl App {
                     });
 
                     ui.add_space(2.0);
-                    ui.label(
-                        egui::RichText::new(format!("{} {}", t("Comando:"), tx.command_line))
-                            .monospace()
-                            .color(ui::text_primary()),
-                    );
-                    ui.add_space(3.0);
+                    let command = tx.command_line.trim();
+                    if !command.is_empty() {
+                        ui.label(
+                            egui::RichText::new(format!("{} {}", t("Comando:"), command))
+                                .monospace()
+                                .color(ui::text_primary()),
+                        );
+                        ui.add_space(3.0);
+                    }
 
                     if !tx.installed.is_empty() {
                         ui.horizontal_wrapped(|ui| {
@@ -3396,6 +3531,7 @@ impl eframe::App for App {
         }
 
         let mut next: Option<Page> = None;
+        let sidebar_locked = self.operation_in_progress();
         egui::SidePanel::left("side")
             .exact_width(270.0)
             .resizable(false)
@@ -3428,6 +3564,17 @@ impl eframe::App for App {
                 let (line, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 2.0), egui::Sense::hover());
                 ui::accent_strip(ui.painter(), line, ui::alpha(ui::ACCENT, 130), egui::Color32::TRANSPARENT);
                 ui.add_space(9.0);
+                if sidebar_locked {
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(t("⚠ Operazione in corso: attendi il completamento prima di cambiare scheda."))
+                                .size(12.5)
+                                .color(ui::semantic_text(ui::WARN)),
+                        )
+                        .wrap(),
+                    );
+                    ui.add_space(4.0);
+                }
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 3.0;
                     for (group, entries) in MENU {
@@ -3449,7 +3596,7 @@ impl eframe::App for App {
                             } else {
                                 label
                             };
-                            if ui::sidebar_item(ui, *p, label, full_label, self.page == *p) {
+                            if ui::sidebar_item(ui, *p, label, full_label, self.page == *p, !sidebar_locked) {
                                 next = Some(*p);
                             }
                         }
@@ -3477,7 +3624,8 @@ impl eframe::App for App {
                     let admin_text = format!(" [⚡ {}] ", t("MODALITÀ AMMINISTRATORE"));
                     ui.colored_label(crate::ui::semantic_text(crate::ui::WARN), admin_text);
                 }
-                let last = self.log.trim_end().rsplit('\n').next().unwrap_or("");
+                let tail = self.log.get(self.status_from..).unwrap_or("");
+                let last = tail.trim_end().rsplit('\n').next().unwrap_or("");
                 let last = if last.is_empty() { t("Pronto") } else { last };
                 ui.label(egui::RichText::new(last).color(crate::ui::text_dim()));
             });

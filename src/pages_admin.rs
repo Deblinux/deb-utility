@@ -1,9 +1,9 @@
 use crate::i18n::{t, tf, tr};
-use crate::{fix_job, health, ui, util, App, Job, Msg};
+use crate::{fix_job, health, ui, util, App, Job, Msg, ProgressReporter};
 use eframe::egui;
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone)]
 pub struct StartEntry {
@@ -37,6 +37,103 @@ pub struct DriverProp {
     pub available: bool,
     pub recommended: bool,
     pub sel: bool,
+}
+
+/// Voce di una sorgente APT mostrata nella gestione repository.
+/// `line = None` identifica un intero file in `/etc/apt/sources.list.d/`.
+#[derive(Clone, Debug)]
+pub struct RepoEntry {
+    pub path: PathBuf,
+    pub line: Option<usize>,
+    pub text: String,
+    pub selected: bool,
+}
+
+/// File sorgente APT ammessi: solo file regolari, mai symlink.
+fn apt_source_files() -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let main = PathBuf::from("/etc/apt/sources.list");
+    if fs::symlink_metadata(&main).map(|m| m.file_type().is_file()).unwrap_or(false) {
+        files.push(main);
+    }
+    if let Ok(rd) = fs::read_dir("/etc/apt/sources.list.d") {
+        let mut extra: Vec<PathBuf> = rd
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| {
+                let regular = fs::symlink_metadata(p).map(|m| m.file_type().is_file()).unwrap_or(false);
+                let ext = p.extension().and_then(|x| x.to_str());
+                regular && matches!(ext, Some("list") | Some("sources"))
+            })
+            .collect();
+        extra.sort();
+        files.extend(extra);
+    }
+    files
+}
+
+/// Elenco testuale delle sorgenti, uguale a quello mostrato prima ma letto
+/// direttamente (e senza seguire symlink).
+pub(crate) fn read_sources_text() -> String {
+    let mut out = String::new();
+    for p in apt_source_files() {
+        match fs::read_to_string(&p) {
+            Ok(txt) => out.push_str(&format!("### {}\n{}\n", p.display(), txt.trim_end())),
+            Err(e) => out.push_str(&format!("### {}\n✘ {e}\n", p.display())),
+        }
+    }
+    out
+}
+
+/// Ricostruisce l'elenco selezionabile da `/etc/apt/sources.list*`:
+/// righe `deb`/`deb-src` per i file classici, una voce per file `.sources`.
+pub(crate) fn collect_repo_entries() -> Vec<RepoEntry> {
+    let mut out = Vec::new();
+    for p in apt_source_files() {
+        let in_list_d = p.parent() == Some(Path::new("/etc/apt/sources.list.d"));
+        let is_deb822 = p.extension().and_then(|x| x.to_str()) == Some("sources");
+        if is_deb822 {
+            out.push(RepoEntry { path: p.clone(), line: None, text: String::new(), selected: false });
+            continue;
+        }
+        if let Ok(txt) = fs::read_to_string(&p) {
+            for (i, raw) in txt.lines().enumerate() {
+                let line = raw.trim();
+                if line.starts_with("deb ") || line.starts_with("deb-src ") {
+                    out.push(RepoEntry {
+                        path: p.clone(),
+                        line: Some(i + 1),
+                        text: line.to_string(),
+                        selected: false,
+                    });
+                }
+            }
+        }
+        // Per i file in sources.list.d offre anche l'azione sull'intero file.
+        if in_list_d {
+            out.push(RepoEntry { path: p.clone(), line: None, text: String::new(), selected: false });
+        }
+    }
+    out
+}
+
+/// Valida un percorso prima di passarlo a uno script privilegiato: vieta
+/// symlink e qualsiasi destinazione fuori dalle due posizioni ammesse.
+fn safe_repo_path(p: &Path) -> Option<PathBuf> {
+    let meta = fs::symlink_metadata(p).ok()?;
+    if meta.file_type().is_symlink() || !meta.is_file() {
+        return None;
+    }
+    let canon = fs::canonicalize(p).ok()?;
+    if canon == Path::new("/etc/apt/sources.list") {
+        return Some(canon);
+    }
+    let dir = fs::canonicalize("/etc/apt/sources.list.d").ok()?;
+    let ext = canon.extension().and_then(|x| x.to_str());
+    if canon.parent() == Some(dir.as_path()) && matches!(ext, Some("list") | Some("sources")) {
+        Some(canon)
+    } else {
+        None
+    }
 }
 
 fn find_line(text: &str, pred: impl Fn(&str) -> bool) -> Option<String> {
@@ -370,11 +467,133 @@ impl App {
     pub(crate) fn load_sources(&self, ctx: &egui::Context) {
         // Lettura rapida: niente barra di progresso (che non avrebbe `busy`
         // a proteggerla) e nessun output parziale da aggiornare.
-        let script = "for f in /etc/apt/sources.list /etc/apt/sources.list.d/*; do [ -f \"$f\" ] && { echo \"### $f\"; cat \"$f\"; echo; }; done";
         self.bg(ctx, |ch| {
-            let (_, out) = crate::util::run_shell(script, false);
-            ch.send(Msg::Out("sources", out));
+            ch.send(Msg::Out("sources", read_sources_text()));
+            ch.send(Msg::RepoEntries(collect_repo_entries()));
         });
+    }
+
+    /// Crea il job che modifica le sorgenti APT selezionate.
+    ///
+    /// Tutti i percorsi sono validati in Rust prima di entrare nello script:
+    /// vengono accettati solo `/etc/apt/sources.list` e file regolari in
+    /// `/etc/apt/sources.list.d/`. Lo script gira in background con pkexec,
+    /// crea un backup, applica la modifica e aggiorna gli elenchi APT.
+    pub(crate) fn repo_change_job(entries: Vec<RepoEntry>, disable: bool) -> Job {
+        Box::new(move |ch| {
+            let mut prog = ProgressReporter::start(ch, "repo_change", t("Modifica repository in corso..."));
+            prog.status(t("Creazione backup e applicazione delle modifiche..."));
+
+            let mut lines: BTreeMap<PathBuf, Vec<usize>> = BTreeMap::new();
+            let mut files: Vec<PathBuf> = Vec::new();
+            let mut invalid: Vec<String> = Vec::new();
+            for e in entries.into_iter().filter(|e| e.selected) {
+                let Some(p) = safe_repo_path(&e.path) else {
+                    invalid.push(e.path.display().to_string());
+                    continue;
+                };
+                match e.line {
+                    Some(n) if n > 0 => lines.entry(p).or_default().push(n),
+                    Some(_) => invalid.push(e.path.display().to_string()),
+                    None if p == Path::new("/etc/apt/sources.list") => {
+                        invalid.push(t("Il file principale /etc/apt/sources.list può essere modificato solo per righe.").to_string());
+                    }
+                    None => {
+                        if !files.contains(&p) {
+                            files.push(p);
+                        }
+                    }
+                }
+            }
+
+            if !invalid.is_empty() {
+                let joined = invalid.join(", ");
+                let msg = tf("Percorso non valido o non consentito: {}", &[&joined]);
+                ch.send(Msg::Log(format!("✘ {msg}")));
+                ch.send(Msg::Out("repo", msg.clone()));
+                prog.finish(msg);
+                return;
+            }
+            if lines.is_empty() && files.is_empty() {
+                let msg = t("Nessuna selezione valida: nessuna sorgente è stata modificata.").to_string();
+                ch.send(Msg::Log(format!("✘ {msg}")));
+                ch.send(Msg::Out("repo", msg.clone()));
+                prog.finish(msg);
+                return;
+            }
+
+            let mut unique: Vec<PathBuf> = lines.keys().cloned().chain(files.iter().cloned()).collect();
+            unique.sort();
+            unique.dedup();
+
+            let mut script = String::from("set -eu\n");
+            script.push_str("STAMP=$(date +%Y%m%d-%H%M%S)\n");
+            script.push_str("BACKUP=/etc/apt/debutility-backups/$STAMP\n");
+            script.push_str("mkdir -p \"$BACKUP\"\nchmod 700 \"$BACKUP\"\necho \"Backup: $BACKUP\"\n");
+            for (i, p) in unique.iter().enumerate() {
+                let fv = format!("F{i}");
+                let bv = format!("B{i}");
+                let backup_name = format!("{:02}-{}", i + 1, p.file_name().unwrap_or_default().to_string_lossy());
+                script.push_str(&format!("{fv}={}\n", util::shq(&p.to_string_lossy())));
+                script.push_str(&format!("[ -f \"${fv}\" ] || {{ echo \"ERROR missing: ${fv}\" >&2; exit 1; }}\n"));
+                script.push_str(&format!("[ ! -L \"${fv}\" ] || {{ echo \"ERROR symlink: ${fv}\" >&2; exit 1; }}\n"));
+                script.push_str(&format!("{bv}={}\n", util::shq(&backup_name)));
+                script.push_str(&format!("cp -p -- \"${fv}\" \"$BACKUP/${bv}\" || exit 1\n"));
+            }
+
+            for (i, (p, mut nums)) in lines.into_iter().enumerate() {
+                let f_idx = unique.iter().position(|x| x == &p).unwrap_or(0);
+                let fv = format!("F{f_idx}");
+                let tv = format!("T{i}");
+                // In caso di rimozione, partire dal fondo evita di sfalsare i numeri di riga.
+                nums.sort_unstable_by(|a, b| b.cmp(a));
+                nums.dedup();
+                script.push_str(&format!("{tv}=\"/etc/apt/.debutility-repo-{i}.tmp\"\n"));
+                if disable {
+                    let cond = nums.iter().map(|n| format!("NR=={n}")).collect::<Vec<_>>().join(" || ");
+                    script.push_str(&format!(
+                        "awk '{} {{ if ($0 ~ /^[[:space:]]*#/) print; else print \"# \" $0; next }} {{ print }}' \"${fv}\" > \"${tv}\" || exit 1\n",
+                        cond
+                    ));
+                } else {
+                    let cond = nums.iter().map(|n| format!("NR!={n}")).collect::<Vec<_>>().join(" && ");
+                    script.push_str(&format!("awk '{} {{ print }}' \"${fv}\" > \"${tv}\" || exit 1\n", cond));
+                }
+                script.push_str(&format!("cat \"${tv}\" > \"${fv}\" || {{ rm -f \"${tv}\"; exit 1; }}\n"));
+                script.push_str(&format!("rm -f \"${tv}\"\n"));
+            }
+
+            for (i, p) in files.iter().enumerate() {
+                let f_idx = unique.iter().position(|x| x == p).unwrap_or(0);
+                let fv = format!("F{f_idx}");
+                if disable {
+                    script.push_str(&format!("D{i}=\"${fv}.disabled-$STAMP\"\nmv -- \"${fv}\" \"$D{i}\" || exit 1\necho \"disabled: $D{i}\"\n"));
+                } else {
+                    script.push_str(&format!("rm -f -- \"${fv}\" || exit 1\necho \"removed: ${fv}\"\n"));
+                }
+            }
+            script.push_str("echo 'update'; apt-get update || { echo 'ERROR apt-get update failed' >&2; exit 1; }\necho 'done'\n");
+
+            let mut output = String::new();
+            let ok = util::run_stream(&script, true, |line, _commit| {
+                output.push_str(line);
+                output.push('\n');
+                prog.track_line(line);
+            });
+
+            // Output e elenco vengono aggiornati sempre, anche in caso di errore:
+            // l'utente deve poter verificare cosa è cambiato e dove sta il backup.
+            ch.send(Msg::RepoEntries(collect_repo_entries()));
+            ch.send(Msg::Out("sources", read_sources_text()));
+            ch.send(Msg::Out("repo", output));
+            let msg = if ok {
+                t("Modifica repository completata").to_string()
+            } else {
+                t("Modifica repository terminata con errori").to_string()
+            };
+            ch.send(Msg::Log(format!("{} {msg}", if ok { "✔" } else { "✘" })));
+            prog.finish(msg);
+        })
     }
 
     // ----- Fixer
@@ -697,6 +916,90 @@ ui.add_space(3.0);
         self.show_out(ui, "recovery", 260.0);
     }
 
+    // ----- Gestione sicura delle sorgenti APT
+
+    fn repo_action(&mut self, disable: bool) {
+        let selected: Vec<RepoEntry> =
+            self.repo_entries.iter().filter(|e| e.selected).cloned().collect();
+        if selected.is_empty() {
+            self.log.push_str(t("Seleziona almeno una riga o un file prima di procedere."));
+            self.log.push('\n');
+            return;
+        }
+        let n = selected.len();
+        let text = if disable {
+            tf("Disabilitare {} sorgenti selezionate? Le righe verranno commentate e i file rinominati con .disabled; prima viene creato un backup.", &[&n])
+        } else {
+            tf("Rimuovere {} sorgenti selezionate? Verrà creato un backup e poi aggiornato l'elenco dei pacchetti.", &[&n])
+        };
+        self.confirm = Some((text, Self::repo_change_job(selected, disable)));
+    }
+
+    pub(crate) fn ui_repo_management(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui::card_compact(ui, |ui| {
+            ui.label(
+                egui::RichText::new(t("Rimozione e disabilitazione repository"))
+                    .strong()
+                    .size(15.0)
+                    .color(ui::accent_text()),
+            );
+            ui.label(
+                egui::RichText::new(t("⚠ Le modifiche alle sorgenti APT richiedono pkexec. Viene creato un backup in /etc/apt/debutility-backups/ prima di toccare qualsiasi file; i symlink e i percorsi non ammessi vengono ignorati."))
+                    .size(12.5)
+                    .color(ui::semantic_text(ui::WARN)),
+            );
+            ui.add_space(3.0);
+
+            ui.label(egui::RichText::new(t("Righe di repository configurate:")).strong().size(13.5));
+            egui::ScrollArea::vertical().max_height(96.0).show(ui, |ui| {
+                let mut shown = 0;
+                for e in self.repo_entries.iter_mut().filter(|e| e.line.is_some()) {
+                    shown += 1;
+                    let label = format!(
+                        "{}:{} — {}",
+                        e.path.display(),
+                        e.line.unwrap_or(0),
+                        e.text
+                    );
+                    ui.checkbox(&mut e.selected, egui::RichText::new(label).size(12.5));
+                }
+                if shown == 0 {
+                    ui.label(egui::RichText::new(t("Nessuna riga di repository trovata.")).size(12.5).color(ui::text_dim()));
+                }
+            });
+
+            ui.add_space(2.0);
+            ui.label(egui::RichText::new(t("File sorgente in /etc/apt/sources.list.d/:")).strong().size(13.5));
+            egui::ScrollArea::vertical().max_height(72.0).show(ui, |ui| {
+                let mut shown = 0;
+                for e in self.repo_entries.iter_mut().filter(|e| e.line.is_none()) {
+                    shown += 1;
+                    let label = format!("{}", e.path.display());
+                    ui.checkbox(&mut e.selected, egui::RichText::new(label).size(12.5));
+                }
+                if shown == 0 {
+                    ui.label(egui::RichText::new(t("Nessun file sorgente trovato in /etc/apt/sources.list.d/.")).size(12.5).color(ui::text_dim()));
+                }
+            });
+
+            ui.add_space(3.0);
+            ui.horizontal_wrapped(|ui| {
+                if ui.add_enabled(!self.busy, egui::Button::new(t("🗑 Rimuovi selezionati"))).clicked() {
+                    self.repo_action(false);
+                }
+                if ui.add_enabled(!self.busy, egui::Button::new(t("⛔ Disabilita selezionati"))).clicked() {
+                    self.repo_action(true);
+                }
+                if ui.button(t("🔄 Rileggi sorgenti")).clicked() {
+                    self.load_sources(ctx);
+                }
+                if self.busy {
+                    ui.spinner();
+                }
+            });
+        });
+    }
+
     // ----- Repository e driver
     pub(crate) fn ui_repos(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui::title(ui, "Repository e driver");
@@ -705,7 +1008,8 @@ ui.add_space(3.0);
             0 => self.drivers_ui(ui, ctx),
             1 => {
                 ui.label(t("Sorgenti software configurate:"));
-                self.show_out(ui, "sources", 260.0);
+                self.show_out(ui, "sources", 180.0);
+                self.ui_repo_management(ui, ctx);
                 ui.add_space(3.0);
                 ui.label(t("Aggiungi un repository (riga completa, es. \"deb http://... suite componenti\"):"));
                 ui.add(egui::TextEdit::singleline(&mut self.repo_line).desired_width(f32::INFINITY));
@@ -743,13 +1047,11 @@ ui.add_space(3.0);
                 }
                 ui.horizontal(|ui| {
                     self.run_btn(ui, ctx, t("Aggiorna elenchi pacchetti"), "repo", "apt-get update", true, None);
-                    if ui.button(t("Rileggi sorgenti")).clicked() {
-                        self.load_sources(ctx);
-                    }
                 });
-                self.show_out(ui, "repo", 200.0);
+                self.show_out(ui, "repo", 160.0);
                 ui.label(t("Sorgenti avanzate:"));
-                self.show_out(ui, "sources", 240.0);
+                self.show_out(ui, "sources", 180.0);
+                self.ui_repo_management(ui, ctx);
             }
         }
     }
