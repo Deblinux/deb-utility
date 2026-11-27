@@ -113,6 +113,8 @@ Applico la correzione...
 Pulizia dei residui in corso...
 Operazione APT in corso...
 Operazioni sulla quarantena in corso...
+Ricerca dei punti di ripristino in corso...
+Rimozione dei punti di ripristino in corso...
 Operazione sui servizi in corso...
 Operazione su GRUB e avvio in corso...
 Rimozione kernel selezionati in corso...
@@ -129,6 +131,13 @@ Verifica dello stato del sistema...
 Pulizia in corso...
 Pulizia completata
 Analisi completata
+Scansione dei punti di ripristino...
+Nessun punto di ripristino trovato.
+Scansione completata
+Aggiornamento dell'elenco...
+Punti di ripristino rimossi. Elenco aggiornato.
+Rimozione terminata con errori: controlla l'output.
+Rimozione completata
 Avvio e controllo iniziale...
 Test della connessione di rete...
 Controlli iniziali completati
@@ -150,7 +159,8 @@ Snapshot non riuscito: operazione annullata
 Snapshot creato
 In corso...
 Scansione spazio disco in corso...
-Scansione completata
+Pulizia della quarantena in corso...
+Pulizia della quarantena completata
 Spazio recuperabile stimato:
 Analizza
 Analisi spazio in corso...
@@ -158,6 +168,7 @@ Ottimizza database SQLite browser
 Ottimizzazione database browser in corso...
 Ottimizzazione completata
 Nessun selettore di file trovato: installa zenity (sudo apt install zenity)
+Installazione di font/temi in corso...
 Storico APT
 Qui puoi consultare il registro completo delle operazioni eseguite da APT sul sistema (installazioni, aggiornamenti e rimozioni di pacchetti).
 Ricarica Storico
@@ -225,6 +236,7 @@ Log di errore recenti (journalctl e kernel)
 Percorso file di destinazione:
 Genera Report HTML
 Generazione del report diagnostico in corso...
+Impossibile aprire il file manager
 Report completato
 Generazione report non riuscita
 Scansione Treemap in corso...
@@ -233,7 +245,6 @@ Scansione annullata
 Treemap aggiornata.
 Treemap pronta
 Cartella aperta nel file manager.
-Impossibile aprire il file manager
 cartella
 file
 Spostare nel cestino?
@@ -310,6 +321,7 @@ Avvisi
 Deb
 Utility
 Ottimizzatore di sistema
+⚠ Operazione in corso: attendi il completamento prima di cambiare scheda.
 MODALITÀ AMMINISTRATORE
 Pronto
 Conferma
@@ -352,12 +364,16 @@ Spazio totale recuperabile:
 Nessun elemento sicuro da rimuovere.
 Attenzione
 Errore operativo durante la pulizia.
+Scansione punti di ripristino: {} trovati.
+Trovati {} punti di ripristino.
+Rimozione: {}
 Eliminati {} file scaduti dalla quarantena.
 Errore nella scadenza della quarantena: {}
 ▶ {}: creazione snapshot di sicurezza...
 Snapshot di sicurezza ({})...
 ✘ Snapshot non riuscito ({}): pulizia annullata.
 ✔ Snapshot di sicurezza creato con {}.
+Eliminati {} elementi scaduti.
 Spostare {} backup di configurazione in quarantena? Potrai ripristinarli entro {} giorni.
 Spostati {} file in quarantena, {} non spostati.
 {} elementi esaminati
@@ -408,6 +424,7 @@ Guida
 Informazioni
 ▶ Applico la correzione...
 ▶ Rilevo il disco per configurare grub-pc senza terminale...
+▶ timeshift --delete / rimozione cartelle snapshot
 ✘ Errore interno: l'operazione si è interrotta in modo anomalo.
 ▶ Scansione spazio disco in corso...
 ▶ Avvio ottimizzazione database SQLite dei browser...
@@ -429,8 +446,9 @@ Informazioni
 ✔ Scansione completata.
 ✔ Analisi approfondita completata.
 ▶ Avvio ottimizzazione sicura per principianti...
-✔ Esportati repository APT e chiavi di firma.
+✔ Esportato /etc/apt/sources.list.
 ✔ Esportati lanciatori (.desktop), autostart e configurazioni Window Manager.
+⚠ Alcune configurazioni desktop non sono state esportate.
 Prima
 Dopo
 Parametri aggiunti
@@ -439,6 +457,12 @@ Riga di comando del kernel attuale
 Riga di comando dopo il riavvio
 In hold: 
 Occupato
+Modifica repository in corso...
+Creazione backup e applicazione delle modifiche...
+Il file principale /etc/apt/sources.list può essere modificato solo per righe.
+Nessuna selezione valida: nessuna sorgente è stata modificata.
+Modifica repository completata
+Modifica repository terminata con errori
 🔄 Esegui controlli
 🛠 Correggi tutto
 Nessun controllo eseguito: premi «Esegui controlli».
@@ -487,6 +511,15 @@ Rigenerare la configurazione di GRUB?
 ♻ Reinstalla GRUB
 Reinstallare il bootloader GRUB? Operazione delicata: assicurati di avere un backup.
 📦 Ripristina Flathub
+Seleziona almeno una riga o un file prima di procedere.
+Rimozione e disabilitazione repository
+⚠ Le modifiche alle sorgenti APT richiedono pkexec. Viene creato un backup in /etc/apt/debutility-backups/ prima di toccare qualsiasi file; i symlink e i percorsi non ammessi vengono ignorati.
+Righe di repository configurate:
+Nessuna riga di repository trovata.
+File sorgente in /etc/apt/sources.list.d/:
+Nessun file sorgente trovato in /etc/apt/sources.list.d/.
+⛔ Disabilita selezionati
+🔄 Rileggi sorgenti
 Sorgenti software configurate:
 Aggiungi un repository (riga completa, es. "deb http://... suite componenti"):
 Aggiungi repository
@@ -498,7 +531,6 @@ I Backports non sono disponibili per questa release.
 Abilita Debian Backports
 Abilitare i Debian Backports?
 Aggiorna elenchi pacchetti
-Rileggi sorgenti
 Sorgenti avanzate:
 Rileva l'hardware del computer e propone i driver e i firmware da installare.
 Rileva hardware e driver
@@ -527,7 +559,10 @@ gruppo non presente
 ⚠ Attenzione: stai modificando il gruppo sudo (privilegi di amministratore). Controlla bene prima di confermare.
 ✔ Applica modifiche
 Le modifiche diventano attive dopo logout o riavvio.
+Percorso non valido o non consentito: {}
 Rimuovere {} kernel e aggiornare GRUB?
+Disabilitare {} sorgenti selezionate? Le righe verranno commentate e i file rinominati con .disabled; prima viene creato un backup.
+Rimuovere {} sorgenti selezionate? Verrà creato un backup e poi aggiornato l'elenco dei pacchetti.
 Installare {} pacchetti driver/firmware?
 Controlla se il sistema ha problemi (pacchetti rotti, servizi fermi, disco quasi pieno...). Il segno ✔ verde significa che va tutto bene; se vedi ⚠ o ✘ premi «Correggi» accanto al problema, oppure «Correggi tutto».
 Il kernel è il cuore del sistema. Qui scegli come il processore bilancia velocità e consumi (governor) e quanto il sistema usa il disco al posto della RAM (swappiness). Se non sei sicuro, lascia i valori attuali.
@@ -605,7 +640,6 @@ Ricerca runtime Flatpak inutilizzati in corso...
 Disinstalla selezionati
 Rimozione runtime Flatpak in corso...
 Aggiornamento elenco runtime inutilizzati...
-Rimozione completata
 Configurazioni utente orfane
 Cartelle di configurazione in ~/.config appartenenti a programmi che non sono più installati sul computer.
 Attenzione: eliminare una cartella in ~/.config può far perdere impostazioni o preferiti dell'applicazione.
@@ -765,21 +799,46 @@ Selezionati: {}
 {} · {} pacchetti · {}
 {} · {} · {} pacchetti
 Pacchetti di questa versione ({})
+✘ Nessuna cartella utente disponibile per i lanciatori.
 Editor Menu Applicazioni e Window Manager
-Gestisce i lanciatori utente e rigenera i menu testuali per window manager specifici come IceWM, JWM, Openbox o Fluxbox, oltre ai menu standard XDG.
+Gestisce i lanciatori XDG e rigenera i menu testuali per IceWM, JWM, Openbox e Fluxbox: nascondi o mostra una voce vale su MATE, KDE, Cinnamon, LXQt, LXDE, XFCE e qualsiasi window manager.
 Ambiente rilevato
+Generico
+Menù
+Nascosti
+Elementi
+Cerca voce...
+Mostra
+Nome
+Icona / Categoria
+Azioni
+Nascondi
+✏ Modifica
+🗑 Rimuovi
+Aggiungi o modifica applicazione nel menu
+Nuova voce
+Icona (opzionale):
+Categoria (es. Internet, Utility):
+➕ Salva e aggiorna menu
 Backup e Ripristino Rapido (.desktop e WM)
 Esporta tutte le personalizzazioni dei lanciatori (~/.local/share/applications) e delle configurazioni dei Window Manager in un archivio compresso .tar.gz nella tua Home, oppure ripristinale.
 📦 Esporta Backup Menu & WM
 📂 Ripristina Backup
-Aggiungi o modifica applicazione nel menu
-Icona (opzionale):
-Categoria (es. Internet, Utility):
-➕ Salva e aggiorna menu
-Voci personalizzate registrate (clicca per caricare nei campi sopra)
-Nessuna voce personalizzata trovata.
-🗑 Rimuovi
+✔ Backup ripristinato con successo!
+✘ Inserire nome e comando per creare una voce.
+✘ Impossibile aggiornare la voce: {}
+Modifica: {}
+✔ Backup salvato con successo in: {}
+✘ Errore durante la creazione del backup: {}
+✘ File di backup non trovato in: {}
+✘ Errore durante il ripristino del backup: {}
+✔ Voce «{}» resa visibile su tutti i menu del desktop.
+✔ Voce «{}» nascosta su tutti i menu del desktop.
+✔ Voce «{}» salvata e menu aggiornati.
+✔ Voce «{}» rimossa dalle personalizzazioni.
+✔ Voce di sistema «{}» nascosta (i file di sistema non vengono modificati).
 menu_backup
+menu_editor
 🔄 Aggiorna dispositivi
 Nessun dispositivo caricabile o elenco non ancora aggiornato. Premi «Aggiorna dispositivi».
 Rimob./USB
@@ -819,9 +878,16 @@ Reinstallare i pacchetti dell'elenco salvato?
 Backup repository
 Ripristina repository
 Ripristinare repository e chiavi dal backup? Le sorgenti attuali verranno sovrascritte.
-Punti di ripristino dell'intero sistema (usa Timeshift).
+🔄 Aggiorna elenco
+☑ Seleziona tutto
+☐ Deseleziona tutto
+Nessun punto di ripristino trovato. Premi «Aggiorna elenco» per cercare snapshot Timeshift e cartelle di ripristino.
+Selez.
+Data
+Dimensione
+🗑 Rimuovi tutto
+Creazione e ripristino (Timeshift):
 ➕ Crea punto di ripristino
-📋 Elenca punti
 Installa Timeshift
 Nome snapshot da ripristinare:
 ⏪ Ripristina punto
@@ -901,6 +967,10 @@ File sorgente:
 Pattern / Riga:
 💬 Commenta righe
 🗑 Rimuovi righe
+Punti di ripristino rilevati: {}
+🗑 Rimuovi selezionati ({})
+Rimuovere {} punti di ripristino selezionati? L'operazione è irreversibile e richiede l'autorizzazione di amministratore.
+Rimuovere TUTTI i {} punti di ripristino? L'operazione è irreversibile e richiede l'autorizzazione di amministratore.
 Distruggere DEFINITIVAMENTE {} elementi? Non sarà possibile recuperarli.
 Scaduta ({})
 In scadenza tra {}g ({})
@@ -912,6 +982,7 @@ Commentare le righe corrispondenti a '{}' in {} e aggiornare APT?
 Rimuovere definitivamente le righe corrispondenti a '{}' da {} e aggiornare APT?
 Copia le tue cartelle importanti (documenti, foto...) in un'altra posizione, meglio se su un disco esterno. Indica la sorgente e la destinazione e premi «Avvia backup».
 Salva l'elenco dei programmi installati e dei repository, così dopo una reinstallazione puoi ripristinare tutto con pochi clic. Non salva i tuoi file personali: per quelli usa «File e cartelle».
+Qui vedi gli snapshot di Timeshift e le cartelle di ripristino presenti sul sistema. Puoi selezionarne uno o più oppure rimuoverli tutti: prima della cancellazione viene chiesta conferma e l'operazione usa pkexec. Premi «Aggiorna elenco» per cercare i punti disponibili.
 Gestione backup
 Distruggi file sicuro
 Firewall UFW
@@ -929,6 +1000,7 @@ Audit permessi e file esposti
 Analizza file e cartelle sensibili (come ~/.ssh) per verificare che non siano leggibili o modificabili da altri utenti del sistema.
 Problemi rilevati
 Correggi tutti i permessi
+Impossibile correggere i permessi
 ✔ Ottimo! Nessun file sensibile o chiave con permessi aperti rilevati.
 Gestione chiavi SSH
 Visualizza le tue chiavi pubbliche da copiare su server remoti o GitHub, oppure crea una nuova coppia ed25519.
@@ -957,7 +1029,6 @@ Solo installati
 Non installati
 Pacchetto
 Descrizione
-Azioni
 Nessun pacchetto trovato con i filtri attuali.
 Installa
 Purga
@@ -972,8 +1043,8 @@ Il sistema funziona, con alcuni avvisi
 Il sistema è in buono stato
 Nessun problema rilevato.
 Stato del sistema
-Ottimizza ora
 Diagnosi completa
+Ottimizza ora
 Utilizzo CPU (ultimi 60 secondi)
 Utilizzo RAM (ultimi 60 secondi)
 Memoria
@@ -1004,11 +1075,15 @@ Durata CPU (s):
 🔥 Stress CPU
 Memoria da testare (MB):
 🧪 Test RAM
+PID
+%CPU
+%MEM
 Termina
 Kill
 Chiusura forzata (SIGKILL)
 pacchetti
  (mostrati i primi 300: usa la ricerca)
+Versione
 Disinstalla
 Crea una memoria compressa virtuale nella RAM fisica per migliorare le prestazioni quando la memoria scarseggia.
 Dimensione zRAM (MB)
@@ -1068,10 +1143,6 @@ Spazio disco
 Stress test
 Pacchetti APT
 Pacchetti Flatpak
-CPU
-RAM
-Swap
-Disco /
 Uptime
 Temperatura CPU
 Dettagli
@@ -1085,10 +1156,19 @@ Sicurezza
 Firewall e porte
 Percorso non valido.
 Salvataggio fallito o autorizzazione negata.
+Home utente non disponibile.
+Nome file non valido.
+✔ Cache font aggiornata.
 Scansiona elementi utente
 Installa nuovo Font/Tema...
 Nessun elemento personalizzato trovato o scansione non avviata. Clicca su 'Scansiona elementi utente'.
 Rimuovi elementi selezionati
+Symlink non supportato: {}
+Già presente, saltato: {}
+✔ Font installato: {}
+✔ Elemento installato: {}
+✘ Tipo di file non supportato: {}
+⚠ Cache font non aggiornata: {}
 Installa o rimuovi rapidamente pacchetti di icone, temi GTK/cursore e font personali in ~/.local/share e ~/.icons. L'installazione di font aggiornerà automaticamente la cache di sistema (fc-cache).
 Gestione Font e Temi / Icone Utente
 ▶ Rimozione elementi grafici utente in corso...
@@ -1183,6 +1263,9 @@ Importa configurazioni WireGuard (.conf) o OpenVPN (.ovpn) e attivale/disattival
 Nessuna VPN configurata. Importa un file WireGuard o OpenVPN per iniziare.
 Disconnetti
 Connetti
+Importazione di {}
+✔ Configurazione VPN importata: {}
+✘ Importazione VPN non riuscita: {} ({})
 Nome di quarantena non valido.
 Elemento non trovato nella quarantena.
 File in quarantena mancante.
@@ -1191,8 +1274,6 @@ I singoli file rimossi da File duplicati e dai backup di configurazione in Resid
 Conservazione temporanea dei file
 Aggiorna elenco
 Elimina elementi scaduti
-Pulizia della quarantena in corso...
-Pulizia della quarantena completata
 Nessun file in quarantena.
 Scaduto
 In scadenza
@@ -1214,13 +1295,16 @@ Impossibile ricreare la cartella di destinazione: {}
 Ripristinato: {}
 Eliminato definitivamente: {}
 Scadenza automatica dopo {} giorni
-Eliminati {} elementi scaduti.
 {} file in quarantena
 Eliminare definitivamente {}? L'operazione non è reversibile.
 Percorso originale
 Modulo di origine
-Data
-Dimensione
+Timeshift
+Cartella snapshot
+Rilevamento di Timeshift...
+Ricerca delle cartelle snapshot...
+Lettura dell'elenco Timeshift...
+Scansione snapshot: {} ({}/{})
 Riparazione pacchetti e dipendenze...
 Operazioni di sistema completate.
 Servono verifiche manuali.
@@ -1259,6 +1343,7 @@ Sicura
 Con cautela
 Delicato
 Livello di rischio
+Menu bloccato: attendi il completamento dell'operazione.
 (nessun output)
 MANUTENZIONE
 SISTEMA
@@ -1400,7 +1485,7 @@ PANORAMICA
 È la schermata iniziale. Mostra in un colpo d'occhio se il sistema è in buono stato, l'uso di CPU, RAM, swap e disco e il loro storico degli ultimi 60 secondi. «Ottimizza ora» esegue la pulizia con le voci già selezionate; le tessere portano alle funzioni principali.
 Esegue una diagnostica rapida in un clic su carico CPU e load average, uso di RAM e swap, spazio libero sulle partizioni, processi più esosi e unità systemd in stato failed, offrendo pulsanti diretti per aprire la sezione relativa.
 Barre di avanzamento
-Le operazioni lunghe (scansioni, pulizie, aggiornamenti, rimozione kernel) mostrano una barra con percentuale e la descrizione del passaggio in corso. Puoi continuare a usare l'interfaccia: i risultati compaiono automaticamente quando il lavoro in background termina.
+Le operazioni lunghe (scansioni, pulizie, aggiornamenti, installazioni, rimozione repository, scansione e rimozione dei punti di ripristino) mostrano una barra con percentuale e la descrizione del passaggio in corso. Finché il lavoro è attivo il menu laterale sinistro è disabilitato e compare un avviso: attendi il completamento prima di cambiare scheda. Il menu si riabilita automaticamente appena l'operazione finisce e i risultati compaiono da soli.
 Libera spazio eliminando i file inutili: temporanei, cache di APT, dei browser, miniature di sistema, cache di app popolari (Discord, Telegram, Steam, Slack), pacchetti orfani, log vecchi, cache utente e cestino. Spunta le voci, premi «Analizza» per vedere quanto spazio recuperi e poi «Pulisci selezionati».
 La cancellazione della cache delle chat o dei browser richiede la chiusura delle relative applicazioni.
 Ottimizza in sicurezza
@@ -1461,8 +1546,10 @@ Include quattro schede e il controllo dei kernel orfani: Kernel manager rimuove 
 Modificare GRUB può impedire l'avvio del computer: controlla sempre l'anteprima e tieni un backup.
 Mostra lo spazio occupato e libero della partizione /boot e l'elenco dei pacchetti linux-image-* e linux-headers-* installati con le relative dimensioni. Premi «Scansiona kernel e /boot», spunta i kernel vecchi da rimuovere e poi «Rimuovi kernel selezionati»: la rimozione usa pkexec apt-get purge e aggiorna GRUB.
 Il kernel in esecuzione (uname -r) e il secondo kernel più recente sono protetti: mostrano il badge verde «In uso - Protetto» e non possono essere selezionati. Lascia sempre almeno un kernel di riserva funzionante.
-Driver manager rileva l'hardware e propone i driver e i firmware da installare. App repository mostra e aggiunge le sorgenti software, Repository Manager abilita i Debian Backports e aggiorna gli elenchi dei pacchetti, e il Gestore Chiavi GPG verifica la scadenza delle chiavi, le rinnova o permette di disabilitare e riabilitare rapidamente chiavi e repository associati.
+Driver manager rileva l'hardware e propone i driver e i firmware da installare. App repository mostra, aggiunge, rimuove e disabilita le sorgenti software; Repository Manager abilita i Debian Backports, aggiorna gli elenchi dei pacchetti e offre gli stessi strumenti di rimozione sicura. Il Gestore Chiavi GPG verifica la scadenza delle chiavi, le rinnova o permette di disabilitare e riabilitare rapidamente chiavi e repository associati.
 Aggiungi solo repository di cui ti fidi e fai attenzione quando disabiliti o riabiliti sorgenti APT.
+In «Repository e driver» → «App repository» o «Repository Manager» puoi selezionare le righe di /etc/apt/sources.list e dei file .list in /etc/apt/sources.list.d/, oppure interi file .list/.sources. «Rimuovi selezionati» elimina le righe o i file, «Disabilita selezionati» commenta le righe o rinomina i file con il suffisso .disabled. Prima di ogni modifica DebUtility crea un backup in /etc/apt/debutility-backups/ con pkexec, lavora in background senza bloccare l'interfaccia, poi aggiorna gli elenchi APT e l'elenco visualizzato.
+Controlla bene cosa selezioni: rimuovere repository ufficiali può lasciare il sistema senza aggiornamenti. I symlink e i percorsi fuori da /etc/apt/sources.list* vengono ignorati per evitare modifiche non sicure. Se apt-get update segnala errori, ripristina il file dal backup.
 Elenca le applicazioni che partono automaticamente al login. Togli la spunta a quelle che non ti servono per ridurre i tempi di avvio; puoi riattivarle quando vuoi.
 Permette di attivare o disattivare i programmi avviati automaticamente al login (file .desktop) con ricerca/filtro rapido per nome o file, ricaricare l'elenco e gestire le estensioni desktop dalla scheda dedicata.
 Disattivare un servizio o un programma di avvio automatico può impedire notifiche, sincronizzazioni o funzionalità del desktop: verifica sempre a cosa serve prima di disabilitarlo.
@@ -1481,8 +1568,11 @@ Scansiona il sistema alla ricerca di agenti di telemetria, tracker o demoni di d
 Disattivare demoni di telemetria di sistema o bloccare domini di rete potrebbe alterare la reportistica di diagnostica di alcune applicazioni di terze parti.
 Disinstallazione Chirurgica
 Monitora e pulisce a fondo l'intero ciclo di vita di un'applicazione. Rimuove non solo il pacchetto ma anche tutti i frammenti invisibili sparsi nel sistema (regole udev, file in /etc, registrazioni D-Bus, policy Polkit e script cron dimenticati), impedendo l'accumulo di rifiuti invisibili.
-File e cartelle copia i tuoi dati in una destinazione a scelta. Pacchetti di sistema salva l'elenco dei pacchetti e dei repository e li ripristina dopo una reinstallazione. Punti di ripristino crea e ripristina istantanee dell'intero sistema con Timeshift.
+File e cartelle copia i tuoi dati in una destinazione a scelta. Pacchetti di sistema salva l'elenco dei pacchetti e dei repository e li ripristina dopo una reinstallazione. Punti di ripristino crea e ripristina istantanee dell'intero sistema con Timeshift e permette di elencare e rimuovere quelle esistenti.
 Ripristinare un punto riporta il sistema indietro: le modifiche successive vanno perse.
+Gestione dei punti di ripristino
+In «Backup → Punti di ripristino» premi «Aggiorna elenco»: DebUtility legge `timeshift --list --scripted` e cerca anche le cartelle snapshot in /timeshift/snapshots e nella posizione dei backup esterni montati. La tabella mostra nome, data, tipo e dimensione di ogni punto, con selezione singola o multipla. «Rimuovi selezionati» cancella solo gli elementi spuntati, «Rimuovi tutto» li rimuove tutti: in entrambi i casi compare una conferma e la rimozione viene eseguita con pkexec. Durante scansione e cancellazione la barra di avanzamento mostra la percentuale e il menu laterale resta bloccato; a fine operazione l'elenco si aggiorna da solo. Se Timeshift non è installato vengono comunque mostrate le cartelle snapshot presenti.
+Pericolo: eliminare uno snapshot è irreversibile e può togliere l'unica copia di sicurezza del sistema. Controlla nome, data e dimensione prima di confermare; non usare la rimozione tutto se hai bisogno di tornare a una versione precedente.
 Esporta l'intero profilo della macchina in un unico archivio compresso (.tar.gz) contenente pacchetti APT manuali, app Flatpak installate, repository aggiuntivi (/etc/apt/sources.list.d/), lanciatori utente (.desktop) e configurazioni dei Window Manager, includendo uno script automatico per ripristinare tutto sul nuovo sistema.
 Sovrascrive più volte un file o una cartella con dati casuali e poi li elimina, in modo che non siano recuperabili. Scegli il numero di passaggi.
 È irreversibile; su SSD e file system con snapshot la sovrascrittura non dà garanzie complete.
