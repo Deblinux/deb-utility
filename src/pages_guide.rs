@@ -363,10 +363,10 @@ impl App {
                     .strong()
                     .color(ui::accent_text()),
             );
-            ui.add_space(4.0);
+            ui.add_space(2.0);
             ui.label(egui::RichText::new(t("DebUtility riunisce in un'unica applicazione pulizia, riparazione, monitoraggio e amministrazione del sistema. Quando una funzione richiede i privilegi di amministratore, il sistema mostra una finestra per l'autorizzazione; le operazioni delicate chiedono sempre conferma prima di procedere. Qui sotto trovi la spiegazione di ogni funzione.")).size(17.0));
         });
-        ui.add_space(8.0);
+        ui.add_space(3.0);
         ui.horizontal(|ui| {
             ui.label(t("Cerca nella guida:"));
             ui.text_edit_singleline(&mut self.guide_filter);
@@ -387,7 +387,7 @@ impl App {
             if hits.is_empty() {
                 continue;
             }
-            ui.add_space(12.0);
+            ui.add_space(5.0);
             ui.label(egui::RichText::new(t(*group)).size(14.0).strong().color(ui::text_dim()));
             ui.add_space(2.0);
             for e in hits {
@@ -398,7 +398,7 @@ impl App {
                         .show(ui, |ui| {
                             ui.label(egui::RichText::new(t(e.1)).size(17.0));
                             if !e.2.is_empty() {
-                                ui.add_space(4.0);
+                                ui.add_space(2.0);
                                 ui.label(
                                     egui::RichText::new(format!("{}: {}", t("Attenzione"), t(e.2)))
                                         .color(ui::semantic_text(ui::WARN)),
@@ -406,11 +406,11 @@ impl App {
                             }
                         });
                 });
-                ui.add_space(6.0);
+                ui.add_space(3.0);
             }
         }
         if shown == 0 {
-            ui.add_space(8.0);
+            ui.add_space(3.0);
             ui.label(t("Nessun risultato per questa ricerca."));
         }
     }

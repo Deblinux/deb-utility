@@ -84,7 +84,7 @@ fn lookup(s: &str) -> Option<&'static str> {
         return None;
     }
     let e = table().get(s)?;
-    let x = e[l - 1];
+    let x = e.get(l.saturating_sub(1)).copied().unwrap_or("");
     if x.is_empty() {
         None
     } else {

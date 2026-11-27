@@ -200,19 +200,27 @@ pub fn quarantine_files(
             module: module.to_string(),
             privileged,
         });
-        save(&items)?;
+        if let Err(e) = save(&items) {
+            // Il file è già stato spostato: riportarlo indietro evita di
+            // perdere irrimediabilmente un elemento non registrato nel manifest.
+            let _ = move_file(&dst, src, privileged);
+            return Err(e);
+        }
         moved += 1;
     }
     Ok((moved, failed))
 }
 
+/// Giorni interi ancora disponibili, arrotondati per eccesso: con 1 secondo
+/// di vita residua il file è ancora valido per oggi, non "scaduto".
 pub fn days_left(item: &Item) -> u64 {
     let end = item.epoch.saturating_add(RETENTION_DAYS * DAY_SECS);
-    end.saturating_sub(now_epoch()) / DAY_SECS
+    let left = end.saturating_sub(now_epoch());
+    left / DAY_SECS + u64::from(left % DAY_SECS > 0)
 }
 
 pub fn is_expired(item: &Item) -> bool {
-    days_left(item) == 0
+    now_epoch() >= item.epoch.saturating_add(RETENTION_DAYS * DAY_SECS)
 }
 
 fn remove_stored(item: &Item) -> Result<(), String> {
@@ -248,26 +256,46 @@ pub fn restore(id: &str) -> Result<String, String> {
         return Err(t("File in quarantena mancante.").to_string());
     }
     let original = PathBuf::from(&item.original_path);
-    if !original.is_absolute() || original.starts_with(&store) {
+    if !original.is_absolute()
+        || original.starts_with(&store)
+        || original.components().any(|c| matches!(c, std::path::Component::ParentDir))
+    {
         return Err(t("Percorso originale non valido.").to_string());
     }
-    if original.exists() {
+    // Un symlink pendente esiste come voce di directory: `exists()` lo segue
+    // e lo considererebbe assente, consentendo una sovrascrittura.
+    if fs::symlink_metadata(&original).is_ok() {
         return Err(tf(
             "Esiste già un file nel percorso originale: {}",
             &[&original.display().to_string()],
         ));
     }
     if let Some(parent) = original.parent() {
-        fs::create_dir_all(parent).map_err(|e| {
-            tf(
-                "Impossibile ricreare la cartella di destinazione: {}",
-                &[&e.to_string()],
-            )
-        })?;
+        if item.privileged {
+            // Le voci privilegiate spesso puntano a /etc: la cartella padre
+            // va creata con elevazione, non con i permessi dell'utente.
+            let script = format!("mkdir -p -- {}", util::shq(&parent.to_string_lossy()));
+            let (ok, out) = util::run_shell(&script, true);
+            if !ok {
+                return Err(util::tail(out.trim(), 2).replace('\n', " | "));
+            }
+        } else {
+            fs::create_dir_all(parent).map_err(|e| {
+                tf(
+                    "Impossibile ricreare la cartella di destinazione: {}",
+                    &[&e.to_string()],
+                )
+            })?;
+        }
     }
     move_file(&stored, &original, item.privileged)?;
     items.remove(idx);
-    save(&items)?;
+    if let Err(e) = save(&items) {
+        // Rollback: il file deve restare in quarantena se il manifesto non
+        // può essere aggiornato, altrimenti non è più ripristinabile.
+        let _ = move_file(&original, &stored, item.privileged);
+        return Err(e);
+    }
     Ok(tf("Ripristinato: {}", &[&original.display().to_string()]))
 }
 
@@ -279,27 +307,45 @@ pub fn delete_one(id: &str) -> Result<String, String> {
         .position(|i| i.id == id)
         .ok_or_else(|| t("Elemento non trovato nella quarantena.").to_string())?;
     let item = items[idx].clone();
-    remove_stored(&item)?;
+    // Aggiorna prima il manifest: se la rimozione del file fallisce si può
+    // reinserire la voce; se si cancellasse prima e `save` fallisse, il file
+    // resterebbe sul disco senza più modo di essere ripristinato dalla UI.
     items.remove(idx);
     save(&items)?;
+    if let Err(e) = remove_stored(&item) {
+        items.push(item.clone());
+        let _ = save(&items);
+        return Err(e);
+    }
     Ok(tf("Eliminato definitivamente: {}", &[&item.original_path]))
 }
 
 /// Elimina automaticamente le voci più vecchie di `RETENTION_DAYS` giorni.
 pub fn purge_expired() -> Result<usize, String> {
     let mut items = load()?;
+    let expired: Vec<Item> = items.iter().filter(|i| is_expired(*i)).cloned().collect();
+    if expired.is_empty() {
+        return Ok(0);
+    }
+    // Aggiorna prima il manifesto: se la scrittura fallisce i file restano
+    // dov'erano e restano ripristinabili dalla UI.
+    items.retain(|i| !is_expired(i));
+    save(&items)?;
+
     let mut removed = 0usize;
-    let mut idx = 0usize;
-    while idx < items.len() {
-        if is_expired(&items[idx]) {
-            remove_stored(&items[idx])?;
-            items.remove(idx);
-            removed += 1;
-        } else {
-            idx += 1;
+    let mut readded = false;
+    for item in expired {
+        match remove_stored(&item) {
+            Ok(()) => removed += 1,
+            Err(_) => {
+                // Il file non si può cancellare: lo rimettiamo nel manifesto
+                // invece di lasciarlo orfano sul disco.
+                items.push(item);
+                readded = true;
+            }
         }
     }
-    if removed > 0 {
+    if readded {
         save(&items)?;
     }
     Ok(removed)
@@ -334,7 +380,7 @@ impl App {
                     );
                 });
             });
-            ui.add_space(6.0);
+            ui.add_space(3.0);
             ui.horizontal(|ui| {
                 if ui.button(t("Aggiorna elenco")).clicked() {
                     self.refresh_quarantine();
@@ -356,7 +402,10 @@ impl App {
                             )),
                             Err(e) => ch.send(Msg::QuarantineMessage(e, true)),
                         }
-                        ch.send(Msg::QuarantineItems(load().unwrap_or_default()));
+                        match load() {
+                            Ok(items) => ch.send(Msg::QuarantineItems(items)),
+                            Err(e) => ch.send(Msg::Log(format!("✘ {e}"))),
+                        }
                         prog.finish(t("Pulizia della quarantena completata"));
                     });
                 }
@@ -367,14 +416,14 @@ impl App {
         });
 
         if let Some((msg, is_error)) = &self.quarantine_msg {
-            ui.add_space(6.0);
+            ui.add_space(3.0);
             ui.colored_label(
                 if *is_error { ui::semantic_text(ui::BAD) } else { ui::semantic_text(ui::GOOD) },
                 msg.as_str(),
             );
         }
 
-        ui.add_space(10.0);
+        ui.add_space(4.0);
         if self.quarantine_items.is_empty() {
             ui::card(ui, |ui| {
                 ui.label(t("Nessun file in quarantena."));
@@ -387,12 +436,12 @@ impl App {
                 .strong()
                 .color(ui::accent_text()),
         );
-        ui.add_space(6.0);
+        ui.add_space(3.0);
 
         let mut restore_id: Option<String> = None;
         let mut delete_request: Option<(String, String)> = None;
 
-        egui::ScrollArea::vertical().max_height(520.0).show(ui, |ui| {
+        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
             for item in &self.quarantine_items {
                 ui::card(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -423,7 +472,7 @@ impl App {
                             }
                         });
                     });
-                    ui.add_space(4.0);
+                    ui.add_space(2.0);
                     egui::Grid::new(format!("q_{}", item.id))
                         .num_columns(2)
                         .striped(true)
@@ -433,17 +482,18 @@ impl App {
                             ui::kv(ui, "Data", &item.date);
                             ui::kv(ui, "Dimensione", &cleaner::fmt_bytes(item.size));
                         });
-                    ui.add_space(8.0);
+                    ui.add_space(3.0);
                     ui.horizontal(|ui| {
                         if ui
-                            .button(t("Ripristina"))
+                            .add_enabled(!self.busy, egui::Button::new(t("Ripristina")))
                             .on_hover_text(t("Riporta il file nel percorso originale"))
                             .clicked()
                         {
                             restore_id = Some(item.id.clone());
                         }
                         if ui
-                            .add(
+                            .add_enabled(
+                                !self.busy,
                                 egui::Button::new(
                                     egui::RichText::new(t("Elimina definitivamente"))
                                         .strong()
@@ -464,17 +514,23 @@ impl App {
                         }
                     });
                 });
-                ui.add_space(6.0);
+                ui.add_space(3.0);
             }
         });
 
         if let Some(id) = restore_id {
-            self.bg(ctx, move |ch: &Chan| {
+            // `bg()` non imposta `busy`: due ripristini potevano sovrapporsi e
+            // sovrascrivere il manifest. Qui serve la stessa serializzazione
+            // delle altre operazioni sulla quarantena.
+            self.spawn(ctx, move |ch: &Chan| {
                 match restore(&id) {
                     Ok(msg) => ch.send(Msg::QuarantineMessage(msg, false)),
                     Err(e) => ch.send(Msg::QuarantineMessage(e, true)),
                 }
-                ch.send(Msg::QuarantineItems(load().unwrap_or_default()));
+                match load() {
+                    Ok(items) => ch.send(Msg::QuarantineItems(items)),
+                    Err(e) => ch.send(Msg::Log(format!("✘ {e}"))),
+                }
             });
         }
         if let Some((id, text)) = delete_request {
@@ -483,7 +539,10 @@ impl App {
                     Ok(msg) => ch.send(Msg::QuarantineMessage(msg, false)),
                     Err(e) => ch.send(Msg::QuarantineMessage(e, true)),
                 }
-                ch.send(Msg::QuarantineItems(load().unwrap_or_default()));
+                match load() {
+                    Ok(items) => ch.send(Msg::QuarantineItems(items)),
+                    Err(e) => ch.send(Msg::Log(format!("✘ {e}"))),
+                }
             });
             self.confirm = Some((text, job));
         }

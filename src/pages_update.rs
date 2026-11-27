@@ -159,7 +159,7 @@ impl App {
                 ui.colored_label(ui::semantic_text(ui::WARN), t("Serve riavviare il computer per completare l'aggiornamento."));
             }
         });
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         let confirm_text = t("Aggiornare ora? L'operazione può richiedere diversi minuti: non spegnere il computer e non chiudere DebUtility finché non finisce.");
         let refresh = !self.upd_checked;
@@ -180,7 +180,7 @@ impl App {
                 ui.spinner();
             }
          });
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         // L'avanzamento in tempo reale è disegnato in cima al pannello
         // centrale (e in forma compatta nella barra di stato): qui restano
@@ -190,12 +190,12 @@ impl App {
         if self.out.contains_key("upd_apt") || self.live.contains_key("upd_apt") {
             ui.label(egui::RichText::new(t("Output APT")).strong());
             self.show_out_follow(ui, "upd_apt", 220.0);
-            ui.add_space(6.0);
+            ui.add_space(3.0);
         }
         if self.out.contains_key("upd_flat") || self.live.contains_key("upd_flat") {
             ui.label(egui::RichText::new(t("Output Flatpak")).strong());
             self.show_out_follow(ui, "upd_flat", 140.0);
-            ui.add_space(6.0);
+            ui.add_space(3.0);
         }
 
         if na > 0 {
@@ -203,14 +203,14 @@ impl App {
                 egui::CollapsingHeader::new(egui::RichText::new(tf("Pacchetti APT da aggiornare: {}", &[&na])).strong().size(18.0))
                     .default_open(false)
                     .show(ui, |ui| {
-                        egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                        egui::ScrollArea::vertical().max_height(185.0).show(ui, |ui| {
                             for l in &self.upd_apt {
                                 ui.label(egui::RichText::new(l.as_str()).monospace().size(14.0));
                             }
                         });
                     });
             });
-            ui.add_space(6.0);
+            ui.add_space(3.0);
         }
         if nf > 0 {
             ui::card(ui, |ui| {

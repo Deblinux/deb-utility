@@ -139,8 +139,26 @@ pub fn page_risk(page: Page) -> RiskLevel {
 /// Livello della pagina correntemente visualizzata (usato da `title`).
 static CURRENT_RISK: AtomicU8 = AtomicU8::new(RiskLevel::Safe as u8);
 
+/// Tutte le schede ordinarie adottano il passo compatto della Dashboard.
+/// Dashboard ed Editor Menu mantengono invece il loro layout già sistemato.
+static COMPACT_PAGES: AtomicBool = AtomicBool::new(true);
+
+pub fn compact_pages() -> bool {
+    COMPACT_PAGES.load(Ordering::Relaxed)
+}
+
 pub fn set_current_page(page: Page) {
     CURRENT_RISK.store(page_risk(page) as u8, Ordering::Relaxed);
+    COMPACT_PAGES.store(!matches!(page, Page::Dashboard | Page::MenuEditor), Ordering::Relaxed);
+}
+
+/// Spaziatura verticale della scheda corrente: compatta ovunque tranne che
+/// nella Dashboard e nell'Editor Menu, che gestiscono il proprio passo.
+pub fn begin_page(ui: &mut egui::Ui) {
+    if compact_pages() {
+        ui.spacing_mut().item_spacing.y = 4.0;
+        ui.spacing_mut().button_padding.y = 6.0;
+    }
 }
 
 pub fn current_risk() -> RiskLevel {
@@ -315,18 +333,20 @@ pub fn apply_theme(ctx: &egui::Context, dark_mode: bool) {
     ctx.set_visuals(v);
 
     let mut style = (*ctx.style()).clone();
+    // Dimensioni moderatamente compatte ma sempre leggibili a occhio nudo:
+    // testo normale 16 px, note 13.5 px, titoli 26 px. Nessun character minuscolo.
     style.text_styles = [
-        (TextStyle::Heading, FontId::proportional(27.0)),
-        (TextStyle::Body, FontId::proportional(17.0)),
-        (TextStyle::Button, FontId::proportional(17.0)),
-        (TextStyle::Small, FontId::proportional(14.0)),
-        (TextStyle::Monospace, FontId::monospace(15.0)),
+        (TextStyle::Heading, FontId::proportional(26.0)),
+        (TextStyle::Body, FontId::proportional(16.0)),
+        (TextStyle::Button, FontId::proportional(16.0)),
+        (TextStyle::Small, FontId::proportional(13.5)),
+        (TextStyle::Monospace, FontId::monospace(14.5)),
     ]
     .into();
-    style.spacing.item_spacing = vec2(10.0, 9.0);
-    // padding uniforme dei pulsanti secondari: 6px verticali, 14px orizzontali
-    style.spacing.button_padding = vec2(14.0, 6.0);
-    style.spacing.interact_size.y = 30.0;
+    // Spaziatura GT-STACER-like: compatta, ma senza comprimere i pulsanti.
+    style.spacing.item_spacing = vec2(8.0, 7.0);
+    style.spacing.button_padding = vec2(12.0, 5.0);
+    style.spacing.interact_size.y = 28.0;
     style.spacing.slider_width = 220.0;
     style.spacing.scroll.bar_width = 11.0;
     ctx.set_style(style);
@@ -345,7 +365,7 @@ fn risk_badge(ui: &mut egui::Ui, risk: RiskLevel) -> egui::Response {
         rect.center(),
         Align2::CENTER_CENTER,
         text,
-        FontId::proportional(14.0),
+        FontId::proportional(13.5),
         risk.text_color(),
     );
     resp.on_hover_text(risk.label())
@@ -353,12 +373,16 @@ fn risk_badge(ui: &mut egui::Ui, risk: RiskLevel) -> egui::Response {
 
 /// Titolo di pagina con barra accentata, badge del rischio a destra e filetto sfumato sottostante.
 pub fn title(ui: &mut egui::Ui, text: &'static str) {
+    if compact_pages() {
+        title_balanced(ui, text);
+        return;
+    }
     let title_col = text_primary();
     ui.horizontal(|ui| {
         let (r, _) = ui.allocate_exact_size(vec2(6.0, 30.0), Sense::hover());
         ui.painter().rect_filled(r, 3.0, if is_dark() { ACCENT } else { ACCENT_DEEP });
         ui.add_space(3.0);
-        ui.label(egui::RichText::new(t(text)).size(30.0).strong().color(title_col));
+        ui.label(egui::RichText::new(t(text)).size(28.0).strong().color(title_col));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             risk_badge(ui, current_risk());
@@ -370,8 +394,52 @@ pub fn title(ui: &mut egui::Ui, text: &'static str) {
     ui.add_space(13.0);
 }
 
+/// Titolo compatto e leggibile per tutte le schede standard: stessa struttura
+/// della Dashboard, con un corpo leggermente più grande.
+fn title_balanced(ui: &mut egui::Ui, text: &'static str) {
+    let title_col = text_primary();
+    ui.horizontal(|ui| {
+        let (r, _) = ui.allocate_exact_size(vec2(6.0, 28.0), Sense::hover());
+        ui.painter().rect_filled(r, 3.0, if is_dark() { ACCENT } else { ACCENT_DEEP });
+        ui.add_space(3.0);
+        ui.label(egui::RichText::new(t(text)).size(25.0).strong().color(title_col));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            risk_badge(ui, current_risk());
+        });
+    });
+    let w = ui.available_width().min(420.0);
+    let (r, _) = ui.allocate_exact_size(vec2(w, 2.0), Sense::hover());
+    accent_strip(ui.painter(), r, alpha(accent_bright(), 150), Color32::TRANSPARENT);
+    ui.add_space(4.0);
+}
+
+/// Variante compatta del titolo, usata solo dalla Dashboard.
+/// Mantiene barra, badge e filetto ma riduce l'altezza totale.
+pub fn title_compact(ui: &mut egui::Ui, text: &'static str) {
+    let title_col = text_primary();
+    ui.horizontal(|ui| {
+        let (r, _) = ui.allocate_exact_size(vec2(6.0, 26.0), Sense::hover());
+        ui.painter().rect_filled(r, 3.0, if is_dark() { ACCENT } else { ACCENT_DEEP });
+        ui.add_space(3.0);
+        ui.label(egui::RichText::new(t(text)).size(25.0).strong().color(title_col));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            risk_badge(ui, current_risk());
+        });
+    });
+    let w = ui.available_width().min(420.0);
+    let (r, _) = ui.allocate_exact_size(vec2(w, 2.0), Sense::hover());
+    accent_strip(ui.painter(), r, alpha(accent_bright(), 150), Color32::TRANSPARENT);
+    ui.add_space(3.0);
+}
+
 /// Intestazione di sezione con icona, titolo e sottotitolo.
 pub fn section(ui: &mut egui::Ui, glyph: &str, name: &'static str, sub: &'static str) {
+    if compact_pages() {
+        section_balanced(ui, glyph, name, sub);
+        return;
+    }
     ui.horizontal(|ui| {
         let (badge, _) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::hover());
         icon_badge(ui.painter(), badge, ACCENT, glyph, 17.0);
@@ -385,21 +453,50 @@ pub fn section(ui: &mut egui::Ui, glyph: &str, name: &'static str, sub: &'static
     ui.add_space(8.0);
 }
 
+/// Intestazione compatta per le schede standard: icona e testo su una riga sola.
+fn section_balanced(ui: &mut egui::Ui, glyph: &str, name: &'static str, sub: &'static str) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 7.0;
+        let (badge, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
+        icon_badge(ui.painter(), badge, ACCENT, glyph, 14.0);
+        ui.label(egui::RichText::new(t(name)).strong().size(16.5));
+        if !sub.is_empty() {
+            ui.label(egui::RichText::new(t(sub)).size(12.5).color(text_dim()));
+        }
+    });
+    ui.add_space(3.0);
+}
+
+/// Intestazione compatta usata solo dalla Dashboard: stessa icona, riga singola.
+pub fn section_compact(ui: &mut egui::Ui, glyph: &str, name: &'static str, sub: &'static str) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        let (badge, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
+        icon_badge(ui.painter(), badge, ACCENT, glyph, 12.0);
+        ui.label(egui::RichText::new(t(name)).strong().size(16.0));
+        if !sub.is_empty() {
+            ui.label(egui::RichText::new(t(sub)).size(11.5).color(text_dim()));
+        }
+    });
+    ui.add_space(2.0);
+}
+
 pub fn sub_tabs(ui: &mut egui::Ui, sub: &mut usize, names: &[&'static str]) {
+    let (margin, after, size) = if compact_pages() { (7.0, 5.0, 15.5) } else { (10.0, 11.0, 16.0) };
     egui::Frame::default()
         .fill(card_bg(ui.ctx()))
-        .rounding(10.0)
-        .inner_margin(egui::Margin::same(10.0))
+        .rounding(if compact_pages() { 9.0 } else { 10.0 })
+        .inner_margin(egui::Margin::same(margin))
         .stroke(Stroke::new(1.0_f32, card_border(ui.ctx())))
         .show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = vec2(5.0, 4.0);
+                ui.spacing_mut().item_spacing = vec2(5.0, 3.0);
                 for (i, n) in names.iter().enumerate() {
-                    ui.selectable_value(sub, i, egui::RichText::new(t(*n)).size(16.0));
+                    ui.selectable_value(sub, i, egui::RichText::new(t(*n)).size(size));
                 }
             });
         });
-    ui.add_space(11.0);
+    ui.add_space(after);
 }
 
 /// Card pulita, usata da TUTTE le schede: sfondo #162032, bordo 1px #263348,
@@ -410,6 +507,9 @@ pub fn card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
 
 /// Variante di [`card`] mantenuta per compatibilità: lo stile è identico.
 pub fn card_tinted<R>(ui: &mut egui::Ui, _tint: Color32, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    if compact_pages() {
+        return card_balanced(ui, add);
+    }
     egui::Frame::default()
         .fill(card_bg(ui.ctx()))
         .rounding(10.0)
@@ -420,6 +520,42 @@ pub fn card_tinted<R>(ui: &mut egui::Ui, _tint: Color32, add: impl FnOnce(&mut e
             add(ui)
         })
         .inner
+}
+
+/// Card delle schede standard: stesso aspetto della Dashboard, con un padding
+/// appena più generoso per non schiacciare tabelle, campi e pulsanti azione.
+fn card_balanced<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    egui::Frame::default()
+        .fill(card_bg(ui.ctx()))
+        .rounding(9.0)
+        .inner_margin(egui::Margin::symmetric(11.0, 9.0))
+        .stroke(Stroke::new(1.0_f32, card_border(ui.ctx())))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 4.0;
+            add(ui)
+        })
+        .inner
+}
+
+/// Frame compatto riservato alla Dashboard: stesso stile, padding dimezzato.
+pub fn card_compact<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    egui::Frame::default()
+        .fill(card_bg(ui.ctx()))
+        .rounding(9.0)
+        .inner_margin(egui::Margin::symmetric(8.0, 8.0))
+        .stroke(Stroke::new(1.0_f32, card_border(ui.ctx())))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 3.0;
+            add(ui)
+        })
+        .inner
+}
+
+/// Alias compatto di [`card_tinted`] per i riquadri colorati della Dashboard.
+pub fn card_tinted_compact<R>(ui: &mut egui::Ui, _tint: Color32, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    card_compact(ui, add)
 }
 
 /// Card "KPI" per la dashboard: numero grande, etichetta e icona colorata.
@@ -446,28 +582,54 @@ pub fn kpi_card(ui: &mut egui::Ui, glyph: &str, value: &str, name: &'static str,
     );
 }
 
+/// Card KPI compatta per la Dashboard: stessa struttura, altezza 50px.
+pub fn kpi_card_compact(ui: &mut egui::Ui, glyph: &str, value: &str, name: &'static str, tint: Color32) {
+    let (rect, _) = ui.allocate_exact_size(vec2(156.0, 50.0), Sense::hover());
+    let p = ui.painter_at(rect);
+    p.rect_filled(rect, 8.0, card_bg(ui.ctx()));
+    p.rect_stroke(rect, 8.0, Stroke::new(1.0_f32, card_border(ui.ctx())));
+    let icon = Rect::from_min_size(Pos2::new(rect.left() + 7.0, rect.top() + 7.0), vec2(22.0, 22.0));
+    icon_badge(&p, icon, tint, glyph, 12.0);
+    p.text(
+        Pos2::new(rect.left() + 37.0, rect.top() + 17.0),
+        Align2::LEFT_CENTER,
+        value,
+        FontId::proportional(18.0),
+        tint,
+    );
+    p.text(
+        Pos2::new(rect.left() + 7.0, rect.bottom() - 9.0),
+        Align2::LEFT_CENTER,
+        t(name),
+        FontId::proportional(11.0),
+        text_dim(),
+    );
+}
+
 pub fn hint(ui: &mut egui::Ui, text: &'static str) {
     let dark_mode = ui.visuals().dark_mode;
     let fill = if dark_mode { Color32::from_rgb(20, 52, 92) } else { Color32::from_rgb(218, 232, 250) };
     let text_col = text_primary();
+    let compact = compact_pages();
+    let (margin, icon, font, after) = if compact { (8.0, 22.0, 15.0, 5.0) } else { (12.0, 28.0, 16.0, 8.0) };
     egui::Frame::default()
         .fill(fill)
-        .rounding(10.0)
-        .inner_margin(egui::Margin::same(12.0))
+        .rounding(if compact { 9.0 } else { 10.0 })
+        .inner_margin(egui::Margin::same(margin))
         .stroke(Stroke::new(1.0_f32, alpha(ACCENT, 160)))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             let w = ui.available_width();
             ui.horizontal(|ui| {
-                let (r, _) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::hover());
-                icon_badge(ui.painter(), r, ACCENT, "i", 18.0);
+                let (r, _) = ui.allocate_exact_size(vec2(icon, icon), Sense::hover());
+                icon_badge(ui.painter(), r, ACCENT, "i", if compact { 14.0 } else { 18.0 });
                 ui.vertical(|ui| {
-                    ui.set_max_width((w - 56.0).max(200.0));
-                    ui.label(egui::RichText::new(t(text)).size(16.0).color(text_col));
+                    ui.set_max_width((w - icon * 2.0).max(200.0));
+                    ui.label(egui::RichText::new(t(text)).size(font).color(text_col));
                 });
             });
         });
-    ui.add_space(8.0);
+    ui.add_space(after);
 }
 
 /// Pulsante principale globale: sfondo pieno #14b8a6 (hover #0d9488),
@@ -479,16 +641,44 @@ pub fn primary_button(ui: &mut egui::Ui, text: &str, enabled: bool) -> egui::Res
     let old_hovered = ui.visuals().widgets.hovered.weak_bg_fill;
     let old_active = ui.visuals().widgets.active.weak_bg_fill;
 
-    ui.spacing_mut().button_padding = vec2(18.0, 10.0);
+    let compact = compact_pages();
+    ui.spacing_mut().button_padding = if compact { vec2(14.0, 7.0) } else { vec2(18.0, 10.0) };
     ui.visuals_mut().widgets.inactive.weak_bg_fill = if enabled { PRIMARY_BG } else { alpha(PRIMARY_BG, 110) };
     ui.visuals_mut().widgets.hovered.weak_bg_fill = PRIMARY_BG_HOVER;
     ui.visuals_mut().widgets.active.weak_bg_fill = PRIMARY_BG_HOVER;
 
     let resp = ui.add_enabled(
         enabled,
-        egui::Button::new(egui::RichText::new(text).size(19.0).strong().color(Color32::WHITE))
+        egui::Button::new(egui::RichText::new(text).size(if compact { 17.0 } else { 19.0 }).strong().color(Color32::WHITE))
             .stroke(Stroke::NONE)
-            .rounding(8.0),
+            .rounding(if compact { 7.0 } else { 8.0 }),
+    );
+
+    ui.spacing_mut().button_padding = old_padding;
+    ui.visuals_mut().widgets.inactive.weak_bg_fill = old_inactive;
+    ui.visuals_mut().widgets.hovered.weak_bg_fill = old_hovered;
+    ui.visuals_mut().widgets.active.weak_bg_fill = old_active;
+
+    resp.on_hover_cursor(if enabled { egui::CursorIcon::PointingHand } else { egui::CursorIcon::NotAllowed })
+}
+
+/// Pulsante primario compatto, usato solo nella Dashboard: stessa palette, meno padding e testo 16px.
+pub fn primary_button_compact(ui: &mut egui::Ui, text: &str, enabled: bool) -> egui::Response {
+    let old_padding = ui.spacing().button_padding;
+    let old_inactive = ui.visuals().widgets.inactive.weak_bg_fill;
+    let old_hovered = ui.visuals().widgets.hovered.weak_bg_fill;
+    let old_active = ui.visuals().widgets.active.weak_bg_fill;
+
+    ui.spacing_mut().button_padding = vec2(12.0, 6.0);
+    ui.visuals_mut().widgets.inactive.weak_bg_fill = if enabled { PRIMARY_BG } else { alpha(PRIMARY_BG, 110) };
+    ui.visuals_mut().widgets.hovered.weak_bg_fill = PRIMARY_BG_HOVER;
+    ui.visuals_mut().widgets.active.weak_bg_fill = PRIMARY_BG_HOVER;
+
+    let resp = ui.add_enabled(
+        enabled,
+        egui::Button::new(egui::RichText::new(text).size(16.0).strong().color(Color32::WHITE))
+            .stroke(Stroke::NONE)
+            .rounding(7.0),
     );
 
     ui.spacing_mut().button_padding = old_padding;
@@ -502,16 +692,16 @@ pub fn primary_button(ui: &mut egui::Ui, text: &str, enabled: bool) -> egui::Res
 pub fn bar(frac: f32) -> egui::ProgressBar {
     egui::ProgressBar::new(frac)
         .fill(BAR_BLUE)
-        .desired_height(26.0)
-        .rounding(8.0)
+        .desired_height(if compact_pages() { 20.0 } else { 26.0 })
+        .rounding(7.0)
 }
 
 /// Barra di avanzamento dei job: verde acqua, alta e animata.
 pub fn progress_bar(frac: f32) -> egui::ProgressBar {
     egui::ProgressBar::new(frac)
         .fill(ACCENT)
-        .desired_height(18.0)
-        .rounding(9.0)
+        .desired_height(if compact_pages() { 15.0 } else { 18.0 })
+        .rounding(8.0)
 }
 
 pub fn heat_color(celsius: f32) -> Color32 {
@@ -896,7 +1086,7 @@ pub fn sidebar_item(
     let mut job = egui::text::LayoutJob::single_section(
         name.to_string(),
         egui::text::TextFormat {
-            font_id: FontId::proportional(if selected { 18.0 } else { 17.0 }),
+            font_id: FontId::proportional(if selected { 17.5 } else { 16.5 }),
             color: text_color,
             ..Default::default()
         },
@@ -957,6 +1147,54 @@ pub fn tile(ui: &mut egui::Ui, page: Page, title: &str, sub: &str) -> bool {
         Align2::CENTER_CENTER,
         "›",
         FontId::proportional(24.0),
+        if resp.hovered() { tint } else { text_dim() },
+    );
+    resp.clicked()
+}
+
+/// Tessera compatta per "Accessi rapidi": titolo e sottotitolo su due righe, tooltip esteso.
+pub fn tile_compact(ui: &mut egui::Ui, page: Page, title: &str, sub: &str) -> bool {
+    let (rect, resp) = ui.allocate_exact_size(vec2(168.0, 52.0), Sense::click());
+    let sub_text = tr(sub);
+    let resp = resp
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(sub_text.clone());
+    let p = ui.painter();
+    let dark_mode = ui.visuals().dark_mode;
+    let tint = page_color(page);
+    let fill = if resp.hovered() {
+        if dark_mode { Color32::from_rgb(45, 57, 74) } else { Color32::from_rgb(230, 238, 246) }
+    } else {
+        card_bg(ui.ctx())
+    };
+    p.rect_filled(rect, 8.0, fill);
+    let stroke_color = if resp.hovered() { alpha(tint, 150) } else { card_border(ui.ctx()) };
+    p.rect_stroke(rect, 8.0, Stroke::new(1.0_f32, stroke_color));
+    page_icon(p, Pos2::new(rect.left() + 23.0, rect.center().y), 32.0, page);
+    p.text(
+        Pos2::new(rect.left() + 42.0, rect.center().y - 8.0),
+        Align2::LEFT_CENTER,
+        tr(title),
+        FontId::proportional(15.0),
+        text_primary(),
+    );
+    let short_sub = if sub_text.chars().count() > 22 {
+        format!("{}…", sub_text.chars().take(21).collect::<String>())
+    } else {
+        sub_text
+    };
+    p.text(
+        Pos2::new(rect.left() + 42.0, rect.center().y + 10.0),
+        Align2::LEFT_CENTER,
+        short_sub,
+        FontId::proportional(11.0),
+        text_dim(),
+    );
+    p.text(
+        Pos2::new(rect.right() - 9.0, rect.center().y),
+        Align2::CENTER_CENTER,
+        "›",
+        FontId::proportional(19.0),
         if resp.hovered() { tint } else { text_dim() },
     );
     resp.clicked()
@@ -1064,13 +1302,52 @@ pub fn gauge(ui: &mut egui::Ui, frac: f32, title: &str, sub: &str) {
             let t = i as f32 / segs.max(1) as f32;
             p.line_segment([pts[i], pts[i + 1]], Stroke::new(12.0_f32, mix(ACCENT, col, t)));
         }
-        p.circle_filled(*pts.last().unwrap(), 5.5, col);
-        p.circle_filled(*pts.last().unwrap(), 2.5, Color32::WHITE);
+        if let Some(&end) = pts.last() {
+            p.circle_filled(end, 5.5, col);
+            p.circle_filled(end, 2.5, Color32::WHITE);
+        }
     }
     let text_col = text_primary();
     p.text(c, Align2::CENTER_CENTER, format!("{:.0}%", frac * 100.0), FontId::proportional(31.0), text_col);
     p.text(Pos2::new(c.x, c.y + r + 26.0), Align2::CENTER_CENTER, tr(title), FontId::proportional(18.0), text_col);
     p.text(Pos2::new(c.x, c.y + r + 46.0), Align2::CENTER_CENTER, sub, FontId::proportional(14.0), text_dim());
+}
+
+/// Gauge compatto per la Dashboard: quadrante 54px, dettagli in tooltip.
+pub fn gauge_compact(ui: &mut egui::Ui, frac: f32, title: &str, sub: &str) {
+    let frac = frac.clamp(0.0, 1.0);
+    let size = 54.0_f32;
+    let (rect, resp) = ui.allocate_exact_size(vec2(size + 6.0, size + 26.0), Sense::hover());
+    let _resp = resp.on_hover_text(sub);
+    let p = ui.painter_at(rect);
+    let c = Pos2::new(rect.center().x, rect.top() + size / 2.0 + 1.0);
+    let r = size * 0.40;
+    let start = 0.75 * PI;
+    let sweep = 1.5 * PI;
+    let dark = ui.visuals().dark_mode;
+    p.add(Shape::line(arc(c, r, start, start + sweep), Stroke::new(7.0_f32, if dark { Color32::from_white_alpha(22) } else { Color32::from_black_alpha(18) })));
+    if frac > 0.005 {
+        let pts = arc(c, r, start, start + sweep * frac);
+        let col = level_color(frac);
+        p.add(Shape::line(pts.clone(), Stroke::new(10.0_f32, alpha(col, 18))));
+        let segs = pts.len().saturating_sub(1);
+        for i in 0..segs {
+            let t = i as f32 / segs.max(1) as f32;
+            p.line_segment([pts[i], pts[i + 1]], Stroke::new(7.0_f32, mix(ACCENT, col, t)));
+        }
+        if let Some(&end) = pts.last() {
+            p.circle_filled(end, 3.5, col);
+        }
+    }
+    let text_col = text_primary();
+    p.text(c, Align2::CENTER_CENTER, format!("{:.0}%", frac * 100.0), FontId::proportional(16.0), text_col);
+    p.text(
+        Pos2::new(c.x, rect.bottom() - 10.0),
+        Align2::CENTER_CENTER,
+        tr(title),
+        FontId::proportional(11.0),
+        text_col,
+    );
 }
 
 pub fn sparkline(ui: &mut egui::Ui, data: &VecDeque<f32>, color: Color32, height: f32) {
@@ -1081,12 +1358,14 @@ pub fn sparkline(ui: &mut egui::Ui, data: &VecDeque<f32>, color: Color32, height
     let bg = if dark_mode { Color32::from_rgb(20, 27, 38) } else { Color32::from_rgb(236, 241, 247) };
     p.rect_filled(rect, 10.0, bg);
     p.rect_stroke(rect, 10.0, Stroke::new(1.0_f32, if dark_mode { Color32::from_white_alpha(14) } else { Color32::from_black_alpha(16) }));
-    let n = data.len();
+    let n = data.len().min(HIST_LEN);
     if n < 2 {
         return;
     }
+    let skip = data.len() - n;
     let pts: Vec<Pos2> = data
         .iter()
+        .skip(skip)
         .enumerate()
         .map(|(i, v)| {
             let x = rect.left() + rect.width() * (i + HIST_LEN - n) as f32 / (HIST_LEN - 1) as f32;
@@ -1126,9 +1405,11 @@ pub fn led(ui: &mut egui::Ui, state: Option<bool>, text: &str) {
 pub fn output_box(ui: &mut egui::Ui, text: &str, height: f32) {
     let dark_mode = ui.visuals().dark_mode;
     let bg = if dark_mode { Color32::from_rgb(17, 22, 30) } else { Color32::from_rgb(235, 240, 245) };
+    let compact = compact_pages();
+    let height = if compact { (height * 0.72).max(110.0) } else { height };
     egui::Frame::default()
         .fill(bg)
-        .inner_margin(egui::Margin::same(10.0))
+        .inner_margin(egui::Margin::same(if compact { 8.0 } else { 10.0 }))
         .rounding(8.0)
         .show(ui, |ui| {
             egui::ScrollArea::both().max_height(height).auto_shrink([false, true]).show(ui, |ui| {
@@ -1141,9 +1422,11 @@ pub fn output_box(ui: &mut egui::Ui, text: &str, height: f32) {
 pub fn output_box_follow(ui: &mut egui::Ui, text: &str, height: f32) {
     let dark_mode = ui.visuals().dark_mode;
     let bg = if dark_mode { Color32::from_rgb(17, 22, 30) } else { Color32::from_rgb(235, 240, 245) };
+    let compact = compact_pages();
+    let height = if compact { (height * 0.72).max(110.0) } else { height };
     egui::Frame::default()
         .fill(bg)
-        .inner_margin(egui::Margin::same(10.0))
+        .inner_margin(egui::Margin::same(if compact { 8.0 } else { 10.0 }))
         .rounding(8.0)
         .show(ui, |ui| {
             egui::ScrollArea::both().max_height(height).auto_shrink([false, true]).stick_to_bottom(true).show(ui, |ui| {
@@ -1154,7 +1437,15 @@ pub fn output_box_follow(ui: &mut egui::Ui, text: &str, height: f32) {
 }
 
 pub fn kv(ui: &mut egui::Ui, k: &str, v: &str) {
-    ui.label(egui::RichText::new(tr(k)).strong());
-    ui.label(v);
+    let size = if compact_pages() { 15.0 } else { 16.0 };
+    ui.label(egui::RichText::new(tr(k)).strong().size(size));
+    ui.label(egui::RichText::new(v).size(size));
+    ui.end_row();
+}
+
+/// Coppia chiave/valore compatta per il riquadro informativo della Dashboard.
+pub fn kv_compact(ui: &mut egui::Ui, k: &str, v: &str) {
+    ui.label(egui::RichText::new(tr(k)).strong().size(12.0));
+    ui.label(egui::RichText::new(v).size(12.0));
     ui.end_row();
 }

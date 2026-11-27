@@ -8,7 +8,7 @@
 use crate::i18n::t;
 use crate::util;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub const TIMER_UNIT: &str = "debutility-maint.timer";
 pub const SERVICE_UNIT: &str = "debutility-maint.service";

@@ -1,5 +1,5 @@
-use crate::i18n::{t, tf};
-use crate::{ui, util, App, Msg};
+use crate::i18n::t;
+use crate::{ui, util, App};
 use eframe::egui;
 
 #[derive(Clone)]
@@ -58,7 +58,7 @@ impl App {
                 }
             });
         });
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         let containers = read_containers(runtime);
         if containers.is_empty() {
@@ -91,7 +91,7 @@ impl App {
                     });
                     ui.label(egui::RichText::new(&c.status).size(14.0).color(ui::text_dim()));
                 });
-                ui.add_space(4.0);
+                ui.add_space(2.0);
             }
         }
         self.show_out(ui, "containers", 200.0);

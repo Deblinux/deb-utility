@@ -7,7 +7,6 @@ use crate::{cleaner, ui, util, App, Chan, Job, Msg, ProgressReporter};
 use eframe::egui;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::Path;
 use std::process::Command;
 
@@ -377,7 +376,7 @@ impl App {
         });
 
         if let Some((frac, detail)) = &self.kb_progress {
-            ui.add_space(8.0);
+            ui.add_space(3.0);
             ui::card(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(crate::i18n::t("Avanzamento")).strong());
@@ -385,7 +384,7 @@ impl App {
                         ui.label(egui::RichText::new(detail.as_str()).size(12.5).color(ui::text_dim()));
                     });
                 });
-                ui.add_space(4.0);
+                ui.add_space(2.0);
                 ui.add(
                     ui::progress_bar(*frac)
                         .desired_width(ui.available_width())
@@ -395,7 +394,7 @@ impl App {
             });
         }
 
-        ui.add_space(12.0);
+        ui.add_space(5.0);
         ui::card(ui, |ui| {
             ui::section(
                 ui,
@@ -403,7 +402,7 @@ impl App {
                 crate::i18n::t("Spazio su /boot"),
                 crate::i18n::t("Partizione usata dal kernel e dai file di avvio"),
             );
-            ui.add_space(8.0);
+            ui.add_space(3.0);
             if self.kb_report.total == 0 {
                 ui.label(
                     egui::RichText::new(crate::i18n::t("Nessun dato su /boot: premi «Scansiona kernel e /boot»."))
@@ -418,10 +417,10 @@ impl App {
                     ui.label(egui::RichText::new(cleaner::fmt_bytes(self.kb_report.free)).strong().size(17.0).color(ui::semantic_text(ui::GOOD)));
                     ui.label(egui::RichText::new(format!("{} · {}", self.kb_report.mount, cleaner::fmt_bytes(self.kb_report.total))).size(12.5).color(ui::text_dim()));
                 });
-                ui.add_space(6.0);
+                ui.add_space(3.0);
                 ui.add(ui::bar(frac).desired_width(ui.available_width()).show_percentage());
                 if self.kb_report.free < 100 * 1024 * 1024 {
-                    ui.add_space(6.0);
+                    ui.add_space(3.0);
                     ui.colored_label(
                         ui::semantic_text(ui::WARN),
                         crate::i18n::t("Attenzione: /boot ha meno di 100 MB liberi. Rimuovi i kernel vecchi per evitare errori durante gli aggiornamenti."),
@@ -430,7 +429,7 @@ impl App {
             }
         });
 
-        ui.add_space(12.0);
+        ui.add_space(5.0);
         ui::card(ui, |ui| {
             ui::section(
                 ui,
@@ -438,7 +437,7 @@ impl App {
                 crate::i18n::t("Kernel installati"),
                 crate::i18n::t("Il kernel attuale e il fallback sono protetti"),
             );
-            ui.add_space(6.0);
+            ui.add_space(3.0);
             ui.label(
                 egui::RichText::new(crate::i18n::tf(
                     "In esecuzione: {} · Fallback: {}",
@@ -447,7 +446,7 @@ impl App {
                 .size(13.0)
                 .color(ui::text_dim()),
             );
-            ui.add_space(8.0);
+            ui.add_space(3.0);
 
             if self.kb_report.kernels.is_empty() {
                 ui.label(
@@ -464,7 +463,7 @@ impl App {
                     .strong()
                     .color(ui::accent_text()),
                 );
-                ui.add_space(8.0);
+                ui.add_space(3.0);
 
                 for (idx, entry) in self.kb_report.kernels.iter_mut().enumerate() {
                     ui.push_id(format!("kb-kernel-{idx}"), |ui| {
@@ -527,7 +526,7 @@ impl App {
                                 }
                             },
                         );
-                        ui.add_space(6.0);
+                        ui.add_space(3.0);
                     });
                 }
             }

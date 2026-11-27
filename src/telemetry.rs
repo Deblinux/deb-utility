@@ -48,20 +48,48 @@ pub fn scan_telemetry_daemons() -> Vec<TelemetryItem> {
 
 /// Blocca un dominio di telemetria inserendolo in /etc/hosts puntando a 127.0.0.1
 pub fn block_domain(domain: &str) -> bool {
+    let domain = domain.trim();
+    if domain.is_empty()
+        || !domain
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+    {
+        return false;
+    }
     let hosts_path = "/etc/hosts";
     if let Ok(content) = fs::read_to_string(hosts_path) {
-        if content.contains(domain) {
+        // Confronto per campo esatto: "example.com" non deve bloccare "notexample.com".
+        let already = content.lines().any(|line| {
+            let mut fields = line.split_whitespace();
+            fields.next().is_some()
+                && fields.any(|host| host == domain)
+        });
+        if already {
             return true; // Già bloccato
         }
     }
-    let entry = format!("\n127.0.0.1 {}\n::1 {}\n", domain, domain);
-    let (ok, _) = crate::util::run_shell(&format!("echo {} | sudo tee -a {}", crate::util::shq(&entry), hosts_path), true);
+    let entry = format!("\n127.0.0.1 {domain}\n::1 {domain}\n");
+    // `run_shell(..., true)` elevazione già con pkexec: `sudo` qui è ridondante
+    // e fallisce sulle installazioni minime che non lo includono.
+    let (ok, _) = crate::util::run_shell(
+        &format!("printf '%s' {} >> {}", crate::util::shq(&entry), hosts_path),
+        true,
+    );
     ok
 }
 
 /// Disattiva un demone di telemetria tramite systemctl
 pub fn disable_service(service_name: &str) -> bool {
-    let script = format!("sudo systemctl stop {} && sudo systemctl disable {}", service_name, service_name);
+    let name = service_name.trim();
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b'@'))
+    {
+        return false;
+    }
+    let q = crate::util::shq(name);
+    let script = format!("systemctl stop {q} && systemctl disable {q}");
     let (ok, _) = crate::util::run_shell(&script, true);
     ok
 }

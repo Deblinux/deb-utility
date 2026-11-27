@@ -83,7 +83,7 @@ impl App {
             );
         });
 
-        ui.add_space(10.0);
+        ui.add_space(4.0);
 
         ui::card(ui, |ui| {
             ui.horizontal(|ui| {
@@ -96,7 +96,7 @@ impl App {
             });
         });
 
-        ui.add_space(10.0);
+        ui.add_space(4.0);
 
         ui::card(ui, |ui| {
             ui.label(
@@ -105,23 +105,23 @@ impl App {
                     .size(16.0)
                     .color(ui::accent_text()),
             );
-            ui.add_space(6.0);
+            ui.add_space(3.0);
 
             if self.app_lifecycle_residuals.is_empty() {
                 ui.label(t("Nessun residuo trovato o scansione non ancora avviata. Inserisci un nome e cerca."));
             } else {
-                egui::ScrollArea::vertical().max_height(350.0).show(ui, |ui| {
+                egui::ScrollArea::vertical().max_height(225.0).show(ui, |ui| {
                     for item in &mut self.app_lifecycle_residuals {
                         ui.horizontal(|ui| {
                             ui.checkbox(&mut item.selected, "");
                             ui.label(egui::RichText::new(&item.artifact_type).strong().color(ui::semantic_text(ui::WARN)));
                             ui.label(item.path.to_string_lossy().as_ref());
                         });
-                        ui.add_space(4.0);
+                        ui.add_space(2.0);
                     }
                 });
 
-                ui.add_space(10.0);
+                ui.add_space(4.0);
                 let n_sel = self.app_lifecycle_residuals.iter().filter(|i| i.selected).count();
                 if ui
                     .add_enabled(
@@ -154,7 +154,7 @@ impl App {
                     );
                     self.confirm_snapshot(msg, job);
                 }
-                ui.add_space(6.0);
+                ui.add_space(3.0);
                 ui.label(t("Dopo l'eliminazione premi di nuovo «Cerca Residui Invisibili» per aggiornare l'elenco."));
             }
         });

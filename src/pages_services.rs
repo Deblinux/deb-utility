@@ -1,5 +1,5 @@
 use crate::i18n::t;
-use crate::{ui, util, App, Chan, Msg};
+use crate::{ui, util, App, Msg};
 use eframe::egui;
 use std::process::Command;
 
@@ -84,13 +84,12 @@ impl App {
             t("Visualizza, avvia, arresta o sblocca i servizi di sistema (inclusi quelli mascherati)."),
         );
 
-        ui.add_space(8.0);
+        ui.add_space(3.0);
         ui.horizontal(|ui| {
             ui.label(t("Filtra servizi:"));
             ui.text_edit_singleline(&mut self.svc_filter);
-            ui.add_space(12.0);
+            ui.add_space(5.0);
             if ui.add_enabled(!self.busy, egui::Button::new(t("Ricarica elenco"))).clicked() {
-                let ch_ctx = ctx.clone();
                 self.spawn(ctx, move |ch| {
                     ch.send(Msg::Services(read_services()));
                 });
@@ -100,9 +99,9 @@ impl App {
             }
         });
 
-        ui.add_space(10.0);
+        ui.add_space(4.0);
         self.show_out_follow(ui, "services", 100.0);
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         if self.services_list.is_empty() {
             ui::card(ui, |ui| {
@@ -120,7 +119,7 @@ impl App {
 
         ui::card(ui, |ui| {
             ui.label(egui::RichText::new(format!("{} ({}/{})", t("Servizi di sistema"), filtered.len(), self.services_list.len())).strong().color(ui::accent_text()));
-            ui.add_space(8.0);
+            ui.add_space(3.0);
 
             for svc in &filtered {
                 ui.horizontal(|ui| {
@@ -149,7 +148,7 @@ impl App {
                         if svc.is_masked {
                             // Pulsante dedicato per i servizi mascherati
                             if ui.add_enabled(!self.busy, egui::Button::new(egui::RichText::new(t("Smaschera e Attiva")).color(ui::accent_text()))).clicked() {
-                                let script = format!("sudo systemctl unmask {} && sudo systemctl enable --now {}", util::shq(&name), util::shq(&name));
+                                let script = format!("systemctl unmask {} && systemctl enable --now {}", util::shq(&name), util::shq(&name));
                                 let job = crate::cmd_job("services", script, true);
                                 self.spawn(ctx, job);
                             }
@@ -157,7 +156,7 @@ impl App {
                             let is_active = svc.active_state == "active";
                             if ui.add_enabled(!self.busy, egui::Button::new(if is_active { t("Ferma") } else { t("Avvia") })).clicked() {
                                 let action = if is_active { "stop" } else { "start" };
-                                let script = format!("sudo systemctl {} {}", action, util::shq(&name));
+                                let script = format!("systemctl {} {}", action, util::shq(&name));
                                 let job = crate::cmd_job("services", script, true);
                                 self.spawn(ctx, job);
                             }

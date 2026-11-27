@@ -1,15 +1,15 @@
 use crate::i18n::{self, t, tf};
 use crate::{ui, util, App, Msg};
 use eframe::egui;
-use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 #[derive(Clone)]
 pub struct Config {
     pub quick_clean: bool,
     pub lang: usize,
     pub dark_mode: bool,
+    /// Controllo aggiornamenti GitHub all'avvio della GUI (attivo di default).
+    pub check_updates: bool,
 }
 
 impl Default for Config {
@@ -17,7 +17,8 @@ impl Default for Config {
         Self { 
             quick_clean: false, 
             lang: i18n::detect(),
-            dark_mode: true, 
+            dark_mode: true,
+            check_updates: true,
         }
     }
 }
@@ -55,7 +56,13 @@ fn path() -> PathBuf {
         } else {
             true
         };
-        Config { quick_clean, lang, dark_mode }
+        // Attivo di default: disattivato solo se l'utente ha salvato `check_updates=0`.
+        let check_updates = if text.contains("check_updates=") {
+            text.lines().any(|l| l.trim() == "check_updates=1")
+        } else {
+            true
+        };
+        Config { quick_clean, lang, dark_mode, check_updates }
     }
 
     pub fn save(&self) {
@@ -64,10 +71,11 @@ fn path() -> PathBuf {
             let _ = std::fs::create_dir_all(d);
         }
         let _ = std::fs::write(&p, format!(
-                "quick_clean={}\nlang={}\ndark_mode={}\n",
+                "quick_clean={}\nlang={}\ndark_mode={}\ncheck_updates={}\n",
                 if self.quick_clean { 1 } else { 0 },
                 i18n::code_of(self.lang),
-                if self.dark_mode { 1 } else { 0 }
+                if self.dark_mode { 1 } else { 0 },
+                if self.check_updates { 1 } else { 0 }
             ));
 
         if let (Ok(uid), Ok(gid)) = (std::env::var("PKEXEC_UID"), std::env::var("PKEXEC_GID")) {
@@ -81,24 +89,6 @@ fn path() -> PathBuf {
     pub fn reset() {
         let _ = std::fs::remove_file(Self::path());
         let _ = std::fs::remove_file(Self::legacy_path());
-    }
-}
-
-fn port_scan() -> String {
-    let mut open: Vec<u16> = Vec::new();
-    for p in 1u16..=65535 {
-        let a: SocketAddr = ([127, 0, 0, 1], p).into();
-        if TcpStream::connect_timeout(&a, Duration::from_millis(30)).is_ok() {
-            open.push(p);
-        }
-    }
-    if open.is_empty() {
-        "Nessuna porta TCP in ascolto su localhost.".to_string()
-    } else {
-        format!(
-            "Porte TCP in ascolto su localhost: {}",
-            open.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", ")
-        )
     }
 }
 
@@ -211,12 +201,12 @@ pub(crate) fn ui_firewall(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                     );
                     self.run_btn(
                         ui, ctx, t("Backup repository"), "backup",
-                        &format!("mkdir -p {dst} && tar czf {dst}/repository.tar.gz /etc/apt/sources.list /etc/apt/sources.list.d /etc/apt/trusted.gpg.d /etc/apt/keyrings 2>/dev/null; chown -R {user} {dst}; echo 'Backup repository creato'"),
+                        &format!("mkdir -p {dst} && tar czf {dst}/repository.tar.gz $(for p in /etc/apt/sources.list /etc/apt/sources.list.d /etc/apt/trusted.gpg.d /etc/apt/keyrings; do [ -e \"$p\" ] && printf '%s ' \"$p\"; done) && chown -R {user} {dst} && echo 'Backup repository creato'"),
                         true, None,
                     );
                     self.run_btn(
                         ui, ctx, t("Ripristina repository"), "backup",
-                        &format!("tar xzf {dst}/repository.tar.gz -C / && apt-get update"),
+                        &format!("set -e; A={dst}/repository.tar.gz; [ -f \"$A\" ] || {{ echo 'Archivio non trovato' >&2; exit 1; }}; BAD=$(tar tzf \"$A\" | grep -v -E '^etc/apt/(sources\\.list$|sources\\.list\\.d/|trusted\\.gpg\\.d/|keyrings/)' || true); [ -z \"$BAD\" ] || {{ echo \"Archivio non valido: $BAD\" >&2; exit 1; }}; tar xzf \"$A\" -C / && apt-get update"),
                         true, Some(t("Ripristinare repository e chiavi dal backup? Le sorgenti attuali verranno sovrascritte.")),
                     );
                 });
@@ -265,14 +255,14 @@ pub(crate) fn ui_firewall(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 "journalctl -p err -b --no-pager | tail -n 100", true, None);
         });
         ui.label(t("Operazioni di DebUtility:"));
-        ui.add_space(6.0);
+        ui.add_space(3.0);
         ui.horizontal(|ui| {
             ui.label(t("Dimensione massima log journald:"));
             ui.add(egui::Slider::new(&mut self.journal_max_mb, 50..=2000).suffix(" MB"));
             let script = format!("journalctl --vacuum-size={}M", self.journal_max_mb);
             self.run_btn(ui, ctx, t("🧹 Riduci log journald"), "journal", &script, true, None);
         });
-        ui.add_space(4.0);
+        ui.add_space(2.0);
         let txt = if self.log_pause { &self.log_frozen } else { &self.log };
         ui::output_box(ui, txt, 300.0);
         ui.label(t("Errori del journal:"));
@@ -284,7 +274,7 @@ pub(crate) fn ui_firewall(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
     pub(crate) fn ui_shredder(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui::title(ui, "Distruggi file sicuro");
         ui.label(t("Sovrascrive più volte il file con dati casuali e zeri, poi lo elimina. L'operazione è irreversibile."));
-        ui.add_space(4.0);
+        ui.add_space(2.0);
         ui.label(egui::RichText::new(t("File e cartelle da distruggere (uno per riga):")).strong());
         ui.add(egui::TextEdit::multiline(&mut self.shred_path).desired_rows(4).desired_width(f32::INFINITY));
         ui.horizontal(|ui| {
@@ -298,14 +288,32 @@ pub(crate) fn ui_firewall(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 self.shred_path.clear();
             }
         });
-        ui.add_space(6.0);
+        ui.add_space(3.0);
         ui.add(egui::Slider::new(&mut self.shred_passes, 1..=35).text(t("Passaggi di sovrascrittura")));
 
         let home = util::home();
         let paths: Vec<String> =
             self.shred_path.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
         let bad = paths.iter().find(|p| {
-            !(p.len() > 1 && p.as_str() != "/" && **p != home && p.starts_with('/') && std::path::Path::new(p.as_str()).exists())
+            let path = Path::new(p.as_str());
+            // `shred` segue i symlink: non accettarli come destinazione.
+            let md = match std::fs::symlink_metadata(path) {
+                Ok(md) if !md.file_type().is_symlink() => md,
+                _ => return true,
+            };
+            if !md.is_file() && !md.is_dir() {
+                return true;
+            }
+            // Confronta i percorsi risolti: un link interno in un genitore
+            // punta comunque a una destinazione diversa da quella protetta.
+            let canon = path.canonicalize().ok();
+            let home_canon = Path::new(&home).canonicalize().ok();
+            let protected = match (&canon, &home_canon) {
+                (Some(c), Some(h)) => c == h || c == Path::new("/"),
+                (Some(c), None) => c == Path::new("/"),
+                (None, _) => p.as_str() == home.as_str(),
+            };
+            !(p.starts_with('/') && p.len() > 1 && !protected)
         });
         if let Some(b) = bad {
             ui.colored_label(ui::semantic_text(ui::WARN), t("Indica un percorso assoluto esistente (la radice e la cartella home sono protette)."));
@@ -317,7 +325,7 @@ pub(crate) fn ui_firewall(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let script = format!(
             "for P in {list}; do if [ -d \"$P\" ]; then find \"$P\" -type f -exec shred -n {n} -z -u {{}} + && rm -rf \"$P\"; else shred -v -n {n} -z -u \"$P\"; fi; done; echo 'Distruzione completata'"
         );
-        ui.add_space(4.0);
+        ui.add_space(2.0);
         if ui.add_enabled(safe && !self.busy, egui::Button::new(t("🗑 Distruggi"))).clicked() {
             let job = crate::cmd_job("shred", script, false);
             let msg = tf("Distruggere DEFINITIVAMENTE {} elementi? Non sarà possibile recuperarli.", &[&paths.len()]);
@@ -347,7 +355,7 @@ pub(crate) fn ui_firewall(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
             i18n::set_lang(lang);
             self.cfg.save();
         }
-        ui.add_space(10.0);
+        ui.add_space(4.0);
         ui.heading(t("Opzioni generali"));
         if ui
             .checkbox(&mut self.cfg.quick_clean, t("Pulizia rapida della cache utente all'avvio"))
@@ -361,17 +369,23 @@ pub(crate) fn ui_firewall(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         {
             self.cfg.save();
         }
-        ui.add_space(10.0);
+        if ui
+            .checkbox(&mut self.cfg.check_updates, t("Controlla aggiornamenti all'avvio"))
+            .changed()
+        {
+            self.cfg.save();
+        }
+        ui.add_space(4.0);
         ui.heading(t("Password amministratore"));
         ui.label(t(
             "Per sicurezza DebUtility non salva la password di root: le operazioni privilegiate usano pkexec \
              e il sistema chiede l'autorizzazione tramite la finestra di Polkit.",
         ));
 
-ui.add_space(10.0);
+ui.add_space(4.0);
         ui.heading(t("Profilo di Configurazione"));
         ui.label(t("Esporta o importa le preferenze e le configurazioni di DebUtility in un file TOML."));
-        ui.add_space(6.0);
+        ui.add_space(3.0);
         ui.horizontal(|ui| {
             if ui.button(t("💾 Esporta profilo")).clicked() {
                 let out = std::process::Command::new("zenity")
@@ -416,7 +430,7 @@ ui.add_space(10.0);
             }
         });
 
-        ui.add_space(10.0);
+        ui.add_space(4.0);
         if ui.button(t("↺ Reimposta configurazione")).clicked() {
             Config::reset();
             self.cfg = Config::default();
@@ -431,7 +445,7 @@ pub fn ui_orphan_kernels(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         t("Individua i kernel installati ma non in uso, calcola lo spazio disco occupato da ciascuno e mostra l'anteprima totale in MB/GB prima della rimozione."),
     );
 
-    ui.add_space(8.0);
+    ui.add_space(3.0);
     if ui.add_enabled(!self.busy, egui::Button::new(t("🔍 Scansiona kernel e spazio"))).clicked() {
         self.spawn(ctx, move |ch| {
             ch.send(Msg::Log("▶ Scansione kernel installati e calcolo spazio su disco...".into()));
@@ -472,7 +486,8 @@ pub fn ui_orphan_kernels(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                             && !ver.starts_with(&running)
                             && !ver.starts_with(&base)
                         {
-                            *map.entry(ver.to_string()).or_insert(0) += kb * 1024;
+                            let slot = map.entry(ver.to_string()).or_insert(0);
+                            *slot = slot.saturating_add(kb.saturating_mul(1024));
                         }
                     }
                 }
@@ -491,7 +506,7 @@ pub fn ui_orphan_kernels(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         });
     }
 
-    ui.add_space(10.0);
+    ui.add_space(4.0);
     let selected_bytes: u64 = self.orphan_kernels.iter().filter(|(_, _, s)| *s).map(|(_, b, _)| *b).sum();
     let total_bytes: u64 = self.orphan_kernels.iter().map(|(_, b, _)| *b).sum();
 
@@ -507,7 +522,7 @@ pub fn ui_orphan_kernels(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                     .color(ui::accent_text()),
             );
         });
-        ui.add_space(6.0);
+        ui.add_space(3.0);
         let frac = if total_bytes > 0 {
             (selected_bytes as f32 / total_bytes as f32).clamp(0.0, 1.0)
         } else {
@@ -516,7 +531,7 @@ pub fn ui_orphan_kernels(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.add(egui::ProgressBar::new(frac).text(t("Quota spazio kernel selezionato")));
     });
 
-    ui.add_space(10.0);
+    ui.add_space(4.0);
     ui::card(ui, |ui| {
         if self.orphan_kernels.is_empty() {
             ui.label(t("Nessun kernel orfano caricato nella lista interattiva. Premi 'Scansiona kernel e spazio' per analizzare il sistema."));
@@ -530,7 +545,7 @@ pub fn ui_orphan_kernels(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                     });
                 });
             }
-            ui.add_space(8.0);
+            ui.add_space(3.0);
             let targets: Vec<String> = self
                 .orphan_kernels
                 .iter()
@@ -567,7 +582,7 @@ pub fn ui_orphan_kernels(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
             t("Visualizza le socket TCP/UDP attive in ascolto o connesse e il relativo processo/programma per individuare comunicazioni di rete inattese."),
         );
 
-        ui.add_space(8.0);
+        ui.add_space(3.0);
         ui.horizontal(|ui| {
             if ui.add_enabled(!self.busy, egui::Button::new(t("🔄 Aggiorna connessioni"))).clicked() {
                 self.spawn(ctx, move |ch| {
@@ -635,7 +650,7 @@ pub fn ui_orphan_kernels(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
             }
         });
 
-        ui.add_space(10.0);
+        ui.add_space(4.0);
         ui::card(ui, |ui| {
             let filter = self.net_socket_filter.trim().to_lowercase();
             let filtered: Vec<&(String, String, String, String, String)> = self
@@ -659,8 +674,8 @@ pub fn ui_orphan_kernels(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .strong()
                         .color(ui::accent_text()),
                 );
-                ui.add_space(6.0);
-                egui::ScrollArea::vertical().id_salt("net_sockets_scroll").max_height(280.0).show(ui, |ui| {
+                ui.add_space(3.0);
+                egui::ScrollArea::vertical().id_salt("net_sockets_scroll").max_height(195.0).show(ui, |ui| {
                     egui::Grid::new("net_sockets_grid")
                         .num_columns(5)
                         .spacing([12.0, 4.0])
@@ -695,7 +710,7 @@ pub fn ui_gpg_keys(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         t("Verifica lo stato di validità delle chiavi GPG dei repository e PPA, evidenzia quelle scadute o prossime alla scadenza e consente il rinnovo automatico."),
     );
 
-    ui.add_space(8.0);
+    ui.add_space(3.0);
     ui.horizontal(|ui| {
         if ui.add_enabled(!self.busy, egui::Button::new(t("🔍 Verifica chiavi GPG"))).clicked() {
             self.spawn(ctx, move |ch| {
@@ -876,7 +891,7 @@ pub fn ui_gpg_keys(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         }
     });
 
-    ui.add_space(10.0);
+    ui.add_space(4.0);
     ui::card(ui, |ui| {
         if self.gpg_keys.is_empty() {
             ui.label(t("Nessuna chiave GPG verificata. Premi 'Verifica chiavi GPG' per controllare la scadenza."));
@@ -884,7 +899,7 @@ pub fn ui_gpg_keys(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
             let mut renew_single_script: Option<String> = None;
             let mut action_script: Option<(String, String)> = None;
 
-            egui::ScrollArea::both().id_salt("gpg_keys_scroll").max_height(260.0).show(ui, |ui| {
+            egui::ScrollArea::both().id_salt("gpg_keys_scroll").max_height(185.0).show(ui, |ui| {
                 egui::Grid::new("gpg_keys_grid")
                     .num_columns(5)
                     .spacing([12.0, 5.0])
@@ -996,10 +1011,10 @@ pub fn ui_gpg_keys(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         }
     });
 
-    ui.add_space(10.0);
+    ui.add_space(4.0);
     ui::card(ui, |ui| {
         ui.strong(t("Chiavi e repository disabilitati"));
-        ui.add_space(6.0);
+        ui.add_space(3.0);
 
         let mut disabled_keys: Vec<(String, String, String)> = Vec::new();
         for (dis_dir, active_dir) in [
@@ -1081,7 +1096,7 @@ pub fn ui_gpg_keys(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
             t("Scansiona /etc/apt/sources.list e /etc/apt/sources.list.d/* per individuare repository duplicati, Signed-By mancanti o non validi e sorgenti disabilitate."),
         );
 
-        ui.add_space(8.0);
+        ui.add_space(3.0);
         ui.horizontal(|ui| {
             if ui.add_enabled(!self.busy, egui::Button::new(t("🔍 Scansiona repository APT"))).clicked() {
                 self.spawn(ctx, move |ch| {
@@ -1213,10 +1228,10 @@ pub fn ui_gpg_keys(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
             }
         });
 
-        ui.add_space(10.0);
+        ui.add_space(4.0);
         ui::card(ui, |ui| {
             ui.strong(t("Intervento rapido su file o riga sorgente APT"));
-            ui.add_space(6.0);
+            ui.add_space(3.0);
 
             ui.horizontal(|ui| {
                 ui.label(t("File sorgente:"));
@@ -1226,7 +1241,7 @@ pub fn ui_gpg_keys(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                         .hint_text("/etc/apt/sources.list.d/esempio.list"),
                 );
             });
-            ui.add_space(4.0);
+            ui.add_space(2.0);
             ui.horizontal(|ui| {
                 ui.label(t("Pattern / Riga:"));
                 ui.add(
@@ -1245,7 +1260,7 @@ pub fn ui_gpg_keys(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_default();
 
-            ui.add_space(8.0);
+            ui.add_space(3.0);
             ui.horizontal(|ui| {
                 let qf = util::shq(&canon_file);
                 let qp = util::shq(p_trimmed);

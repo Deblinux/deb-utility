@@ -90,7 +90,7 @@ pub fn scan_duplicates_with<F: FnMut(&str, usize, usize)>(
     walk_dir(
         Path::new(root),
         skip_hidden,
-        min_kb * 1024,
+        min_kb.saturating_mul(1024),
         &mut by_size,
         &mut seen,
         &mut |n| on_progress("Individuazione file", n, 0),
@@ -150,8 +150,8 @@ pub fn scan_duplicates_with<F: FnMut(&str, usize, usize)>(
 
     // Ordina per spazio recuperabile decrescente
     groups.sort_by(|a, b| {
-        let save_a = a.size * (a.files.len().saturating_sub(1) as u64);
-        let save_b = b.size * (b.files.len().saturating_sub(1) as u64);
+        let save_a = a.size.saturating_mul(a.files.len().saturating_sub(1) as u64);
+        let save_b = b.size.saturating_mul(b.files.len().saturating_sub(1) as u64);
         save_b.cmp(&save_a)
     });
 
@@ -174,14 +174,14 @@ impl App {
                     self.dup_dir = util::home();
                 }
             });
-            ui.add_space(6.0);
+            ui.add_space(3.0);
             ui.horizontal(|ui| {
                 ui.label(t("Dimensione minima (KB):"));
                 ui.add(egui::DragValue::new(&mut self.dup_min_kb).range(1..=1_000_000));
-                ui.add_space(12.0);
+                ui.add_space(5.0);
                 ui.checkbox(&mut self.dup_skip_hidden, t("Ignora file e cartelle nascoste (.*)"));
             });
-            ui.add_space(8.0);
+            ui.add_space(3.0);
             ui.horizontal(|ui| {
                 if ui::primary_button(ui, t("Cerca duplicati"), !self.busy).clicked() {
                     let dir = self.dup_dir.clone();
@@ -208,7 +208,7 @@ impl App {
             });
         });
 
-        ui.add_space(10.0);
+        ui.add_space(4.0);
 
         if self.dup_groups.is_empty() {
             ui::card(ui, |ui| {
@@ -316,9 +316,9 @@ impl App {
             );
         }
 
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
-        egui::ScrollArea::vertical().max_height(460.0).show(ui, |ui| {
+        egui::ScrollArea::vertical().max_height(285.0).show(ui, |ui| {
             for (idx, g) in self.dup_groups.iter_mut().enumerate() {
                 ui::card(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -334,13 +334,13 @@ impl App {
                             .color(ui::accent_text()),
                         );
                     });
-                    ui.add_space(4.0);
+                    ui.add_space(2.0);
                     for (path, sel) in &mut g.files {
                         let label = path.to_string_lossy().to_string();
                         ui.checkbox(sel, label.as_str());
                     }
                 });
-                ui.add_space(6.0);
+                ui.add_space(3.0);
             }
         });
     }

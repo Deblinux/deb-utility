@@ -1,5 +1,5 @@
-use crate::i18n::{t, tr};
-use crate::{ui, util, App, Msg};
+use crate::i18n::t;
+use crate::{ui, util, App};
 use eframe::egui;
 
 #[derive(Clone)]
@@ -52,7 +52,7 @@ impl App {
             ui.label(egui::RichText::new(t("Estensioni Desktop")).strong().size(20.0));
             ui.label(format!("{}: {}", t("Ambiente desktop rilevato"), if de.is_empty() { "Sconosciuto" } else { &de }));
         });
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         if de.contains("GNOME") {
             let exts = read_gnome_extensions();
@@ -74,7 +74,7 @@ impl App {
                         });
                     });
                 });
-                ui.add_space(4.0);
+                ui.add_space(2.0);
             }
         } else {
             ui::card(ui, |ui| {

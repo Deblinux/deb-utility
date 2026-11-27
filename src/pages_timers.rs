@@ -225,7 +225,7 @@ impl App {
                     }
                 });
             });
-            ui.add_space(6.0);
+            ui.add_space(3.0);
             if let Some(status) = &self.timer_status {
                 ui.label(
                     egui::RichText::new(tf("Prossima esecuzione: {}", &[&status.next]))
@@ -306,13 +306,13 @@ impl App {
                 }
             }
         });
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         let mut freq = self.timer_freq.min(ts::FREQUENCIES.len() - 1);
         let mut include = self.timer_includes.clone();
         ui::card(ui, |ui| {
             ui.label(egui::RichText::new(t("Configurazione")).strong().size(18.0));
-            ui.add_space(4.0);
+            ui.add_space(2.0);
             egui::ComboBox::from_label(t("Frequenza"))
                 .selected_text(t(ts::FREQUENCIES[freq].1))
                 .show_ui(ui, |ui| {
@@ -331,7 +331,7 @@ impl App {
                     .color(ui::text_dim())
                     .size(13.0),
             );
-            ui.add_space(8.0);
+            ui.add_space(3.0);
             ui.label(egui::RichText::new(t("Da includere nella pulizia")).strong());
             ui.label(
                 egui::RichText::new(t("Seleziona almeno una categoria: verrà passata alla CLI come opzione --include."))
@@ -406,7 +406,7 @@ impl App {
                 })),
             );
         }
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         match action {
             Some(Action::Apply) | Some(Action::Save) => {
@@ -451,7 +451,7 @@ impl App {
             None => {}
         }
 
-        ui.add_space(8.0);
+        ui.add_space(3.0);
         match ts::read_log() {
             Ok(log) if !log.trim().is_empty() => {
                 ui.label(
@@ -473,7 +473,7 @@ impl App {
             }
         }
 
-        ui.add_space(12.0);
+        ui.add_space(5.0);
         ui.heading(t("Timer attivi nel sistema"));
         ui.horizontal(|ui| {
             self.run_btn(ui, ctx, t("Mostra tutti i timer utente"), "timers", "systemctl --user list-timers --all", false, None);

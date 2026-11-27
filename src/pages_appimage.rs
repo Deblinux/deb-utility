@@ -1,9 +1,9 @@
-use crate::i18n::{t, tr};
-use crate::{ui, util, App, Msg};
+use crate::i18n::t;
+use crate::{ui, util, App};
 use eframe::egui;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Clone)]
 pub struct AppImageItem {
@@ -80,18 +80,19 @@ pub fn integrate_appimage(item: &AppImageItem) -> Result<(), String> {
         item.name, p_str
     );
     fs::write(&item.desktop_file, content).map_err(|e| e.to_string())?;
-    let _ = util::run_shell("update-desktop-database ~/.local/share/applications 2>/dev/null", false);
+    let apps = format!("{}/.local/share/applications", util::home());
+    let _ = util::run_shell(&format!("update-desktop-database {} 2>/dev/null", util::shq(&apps)), false);
     Ok(())
 }
 
 impl App {
-    pub(crate) fn ui_appimages(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+    pub(crate) fn ui_appimages(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
         ui::title(ui, "AppImage");
         ui::card(ui, |ui| {
             ui.label(egui::RichText::new(t("Gestione AppImage")).strong().size(20.0));
             ui.label(t("Rileva le applicazioni AppImage in ~/Applications, ~/AppImages o ~/.local/bin e le integra nel menu delle applicazioni di sistema."));
         });
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         let items = scan_appimages();
         if items.is_empty() {
@@ -112,7 +113,8 @@ impl App {
                         if item.is_integrated {
                             if ui.button(t("Rimuovi dal menu")).clicked() {
                                 let _ = fs::remove_file(&item.desktop_file);
-                                let _ = util::run_shell("update-desktop-database ~/.local/share/applications 2>/dev/null", false);
+                                let apps = format!("{}/.local/share/applications", util::home());
+                                let _ = util::run_shell(&format!("update-desktop-database {} 2>/dev/null", util::shq(&apps)), false);
                             }
                         } else {
                             if ui::primary_button(ui, t("Integra nel menu"), true).clicked() {
@@ -130,7 +132,7 @@ impl App {
                 });
                 ui.label(egui::RichText::new(item.path.display().to_string()).size(13.0).color(ui::text_dim()));
             });
-            ui.add_space(4.0);
+            ui.add_space(2.0);
         }
     }
 }

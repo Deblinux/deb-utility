@@ -5,7 +5,6 @@
 
 use crate::i18n::{t, tf};
 use std::cmp::Ordering;
-use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
@@ -450,7 +449,3 @@ pub fn short_name(path: &Path, home: &Path) -> String {
         .unwrap_or_else(|| path.display().to_string())
 }
 
-/// Insieme dei nomi di categoria, utile per filtri futuri.
-pub fn category_names() -> HashSet<&'static str> {
-    DiskCategory::ALL.iter().map(|c| c.label()).collect()
-}

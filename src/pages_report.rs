@@ -44,6 +44,7 @@ fn escape_html(s: &str) -> String {
 pub fn generate_html_report(opts: &ReportOptions, output_path: &str) -> Result<String, &'static str> {
     let date = run_cmd("date", &["+%Y-%m-%d %H:%M:%S"]);
     let hostname = run_cmd("hostname", &[]);
+    let host_escaped = escape_html(&hostname);
 
     let mut body = String::new();
 
@@ -113,7 +114,7 @@ pub fn generate_html_report(opts: &ReportOptions, output_path: &str) -> Result<S
 <html lang="it">
 <head>
 <meta charset="UTF-8">
-<title>DebUtility - Report Diagnostica ({hostname})</title>
+<title>DebUtility - Report Diagnostica ({host_escaped})</title>
 <style>
   body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f6f9; color: #1e293b; margin: 0; padding: 24px; }}
   .container {{ max-width: 960px; margin: 0 auto; background: #ffffff; padding: 32px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); }}
@@ -131,7 +132,7 @@ pub fn generate_html_report(opts: &ReportOptions, output_path: &str) -> Result<S
 <div class="container">
   <header>
     <h1>DebUtility — Report di Diagnostica di Sistema</h1>
-    <div class="meta">Host: <strong>{hostname}</strong> | Generato il: <strong>{date}</strong></div>
+    <div class="meta">Host: <strong>{host_escaped}</strong> | Generato il: <strong>{date}</strong></div>
   </header>
   {body}
 </div>

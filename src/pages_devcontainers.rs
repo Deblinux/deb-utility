@@ -801,7 +801,7 @@ impl App {
         });
 
         if let Some((frac, detail)) = &self.dev_progress {
-            ui.add_space(8.0);
+            ui.add_space(3.0);
             ui::card(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(t("Avanzamento")).strong());
@@ -809,7 +809,7 @@ impl App {
                         ui.label(egui::RichText::new(detail.as_str()).size(12.5).color(ui::text_dim()));
                     });
                 });
-                ui.add_space(4.0);
+                ui.add_space(2.0);
                 ui.add(
                     ui::progress_bar(*frac)
                         .desired_width(ui.available_width())
@@ -819,7 +819,7 @@ impl App {
             });
         }
 
-        ui.add_space(12.0);
+        ui.add_space(5.0);
 
         for (ci, cat) in self.dev_report.categories.iter_mut().enumerate() {
             ui::card(ui, |ui| {
@@ -842,7 +842,7 @@ impl App {
                     });
                 });
 
-                ui.add_space(7.0);
+                ui.add_space(3.0);
                 ui.horizontal_wrapped(|ui| {
                     ui.label(egui::RichText::new(t("Recuperabile:")).color(ui::text_dim()));
                     ui.label(
@@ -862,7 +862,7 @@ impl App {
                     );
                 });
 
-                ui.add_space(6.0);
+                ui.add_space(3.0);
                 if cat.items.is_empty() {
                     ui.label(
                         egui::RichText::new(if cat.installed {
@@ -873,7 +873,7 @@ impl App {
                         .color(ui::text_dim()),
                     );
                 } else {
-                    egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
+                    egui::ScrollArea::vertical().max_height(175.0).show(ui, |ui| {
                         for (idx, item) in cat.items.iter_mut().enumerate() {
                             ui.push_id(format!("dev-{ci}-{idx}"), |ui| {
                                 ui.horizontal(|ui| {
@@ -905,16 +905,16 @@ impl App {
                                             .color(ui::text_dim()),
                                     );
                                 }
-                                ui.add_space(5.0);
+                                ui.add_space(2.5);
                             });
                         }
                     });
                 }
             });
-            ui.add_space(8.0);
+            ui.add_space(3.0);
         }
 
-        ui.add_space(4.0);
+        ui.add_space(2.0);
         ui.horizontal_wrapped(|ui| {
             ui.label(
                 egui::RichText::new(t("Le cartelle target/ e node_modules sono deselezionate di default: spuntale solo se vuoi ricostruirle."))

@@ -218,7 +218,7 @@ fn delete_job(dirs: bool, hidden: bool, items: Vec<String>) -> Job {
         );
         let (ok, err) = delete_empty_items(dirs, items, |cur, total, p| prog.step(cur, total, p));
         ch.send(Msg::Log(format!("✔ Eliminati {ok} elementi ({err} non rimossi)")));
-        prog.status(t("Nuova scansione in corso..."));
+        prog.set(0.60, t("Nuova scansione in corso..."));
         if dirs {
             ch.send(Msg::AdvDirs(scan_dirs(hidden)));
         } else {
@@ -261,16 +261,16 @@ impl App {
                 .size(17.0),
         );
         ui.checkbox(&mut self.adv_hidden, t("Includi anche file e cartelle nascosti (meglio lasciare disattivato)"));
-        ui.add_space(8.0);
+        ui.add_space(3.0);
         self.found_card(ui, ctx, true);
-        ui.add_space(10.0);
+        ui.add_space(4.0);
         self.found_card(ui, ctx, false);
-        ui.add_space(10.0);
+        ui.add_space(4.0);
         self.rc_card(ui, ctx);
         self.flatpak_card(ui, ctx);
         self.orphan_configs_card(ui, ctx);
         
-        ui.add_space(10.0);
+        ui.add_space(4.0);
         ui::card(ui, |ui| {
             ui.label(egui::RichText::new(t("Ottimizza database SQLite browser")).strong().size(20.0));
             ui.label(t("Esegue VACUUM e REINDEX sui database interni dei browser (Firefox, Chrome, Chromium, Brave) verificando prima che siano chiusi. Velocizza l'avvio e la barra degli indirizzi senza cancellare cronologia o segnalibri."));
@@ -370,7 +370,7 @@ impl App {
                 }
             }
         });
-        egui::ScrollArea::vertical().id_source(if dirs { "adv_d" } else { "adv_f" }).max_height(220.0).show(ui, |ui| {
+        egui::ScrollArea::vertical().id_source(if dirs { "adv_d" } else { "adv_f" }).max_height(165.0).show(ui, |ui| {
             for f in list.iter_mut().take(500) {
                 let rel = f.path.strip_prefix(&home).unwrap_or(&f.path).to_string();
                 ui.checkbox(&mut f.sel, format!("~{rel}"));
@@ -444,7 +444,7 @@ fn rc_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 }
             });
 
-            egui::ScrollArea::vertical().id_source("rc_pkgs_scroll").max_height(200.0).show(ui, |ui| {
+            egui::ScrollArea::vertical().id_source("rc_pkgs_scroll").max_height(155.0).show(ui, |ui| {
                 for (pkg, sel) in &mut self.rc_pkgs {
                     ui.checkbox(sel, pkg.clone());
                 }
@@ -522,7 +522,7 @@ fn flatpak_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 }
             });
 
-            egui::ScrollArea::vertical().id_source("flatpak_scroll").max_height(180.0).show(ui, |ui| {
+            egui::ScrollArea::vertical().id_source("flatpak_scroll").max_height(145.0).show(ui, |ui| {
                 for (pkg, sel) in &mut self.flatpak_unused {
                     ui.checkbox(sel, pkg.clone());
                 }
@@ -622,7 +622,7 @@ fn orphan_configs_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 }
             });
 
-            egui::ScrollArea::vertical().id_source("orphan_configs_scroll").max_height(180.0).show(ui, |ui| {
+            egui::ScrollArea::vertical().id_source("orphan_configs_scroll").max_height(145.0).show(ui, |ui| {
                 for (path, sel) in &mut self.orphan_configs {
                     ui.checkbox(sel, path.to_string_lossy().as_ref()); // Conversione PathBuf -> &str per la checkbox
                 }
@@ -653,7 +653,7 @@ fn orphan_configs_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
             egui::RichText::new(t("Allunga la durata della batteria del notebook scegliendo come il processore usa l'energia. Funziona solo sui portatili: un PC fisso non ha la batteria."))
                 .size(17.0),
         );
-        ui.add_space(8.0);
+        ui.add_space(3.0);
         let (cap, status) = match battery() {
             Some(b) => b,
             None => {
@@ -683,7 +683,7 @@ fn orphan_configs_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         });
         
         if let Some(bh) = battery_health() {
-            ui.add_space(6.0);
+            ui.add_space(3.0);
             ui::card(ui, |ui| {
                 ui.label(
                     egui::RichText::new(format!("{} ({})", t("Salute e usura batteria"), bh.name))
@@ -718,7 +718,7 @@ fn orphan_configs_card(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
             });
         }
         
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         let pp = |profile: &str, sysfs: &str| -> String {
             format!(
@@ -772,10 +772,10 @@ format!(
             ui::card(ui, |ui| {
                 ui.label(egui::RichText::new(t(title)).strong().size(20.0));
                 ui.label(t(desc));
-                ui.add_space(4.0);
+                ui.add_space(2.0);
                 self.run_btn(ui, ctx, t("Applica"), "power", &script, true, None);
             });
-            ui.add_space(6.0);
+            ui.add_space(3.0);
         }
         ui.label(egui::RichText::new(t("Le impostazioni valgono fino al riavvio del computer.")).color(ui::text_dim()));
         self.show_out(ui, "power", 100.0);
@@ -786,17 +786,17 @@ format!(
         ui::card(ui, |ui| {
             ui.label(egui::RichText::new(t("Cosa sono i servizi")).strong().size(20.0));
             ui.label(t("I servizi (o «demoni») sono programmi che girano sempre in background e gestiscono le funzioni chiave del sistema: la rete, il server SSH, il Bluetooth, il firewall."));
-            ui.add_space(4.0);
+            ui.add_space(2.0);
             ui.label(t("Verifica stato: controlla se il servizio è attivo (running) o fermo (dead), senza modificare nulla."));
             ui.label(t("Avvia: attiva subito il servizio per la sessione corrente (richiede privilegi di amministratore)."));
             ui.label(t("Arresta: ferma il servizio in tempo reale per liberare memoria o interrompere una funzione (richiede privilegi di amministratore)."));
-            ui.add_space(4.0);
+            ui.add_space(2.0);
             ui.colored_label(
                 ui::WARN,
                 t("Attenzione: fermare servizi critici come networking o NetworkManager può disconnettere temporaneamente il PC da Internet."),
             );
         });
-        ui.add_space(8.0);
+        ui.add_space(3.0);
         egui::ComboBox::from_label(t("Servizi comuni"))
             .selected_text(self.svc_name.clone())
             .width(420.0)
@@ -852,16 +852,16 @@ format!(
     fn perf_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui::card(ui, |ui| {
             ui.label(t("Analizza i punti che possono rallentare il sistema e intervieni con i pulsanti qui sotto."));
-            ui.add_space(4.0);
+            ui.add_space(2.0);
             ui.label(t("Analisi avvio: mostra i servizi che impiegano più tempo a caricarsi all'accensione."));
             ui.label(t("Gestione swap: regola la «swappiness», cioè quanto il sistema usa il disco al posto della RAM."));
             ui.label(t("Manutenzione disco: esegue TRIM (solo SSD) per mantenere alte le velocità di lettura e scrittura."));
             ui.label(t("Processi pesanti: mostra le applicazioni che consumano più CPU e RAM."));
             ui.label(t("Ottimizza tutto: manutenzione completa automatica (TRIM, pulizia cache, ottimizzazione memoria)."));
-            ui.add_space(4.0);
+            ui.add_space(2.0);
             ui.colored_label(ui::semantic_text(ui::WARN), t("Attenzione: alcune operazioni richiedono privilegi di amministratore."));
         });
-        ui.add_space(8.0);
+        ui.add_space(3.0);
         ui.horizontal_wrapped(|ui| {
             self.run_btn(
                 ui, ctx, t("Analisi avvio"), "perf",
@@ -879,7 +879,7 @@ format!(
                 true, None,
             );
         });
-        ui.add_space(6.0);
+        ui.add_space(3.0);
         ui.label(egui::RichText::new(t("Gestione swap")).strong().size(18.0));
         ui.add(egui::Slider::new(&mut self.swappiness, 0..=100).text("vm.swappiness"));
         ui.label(egui::RichText::new(t("Valori bassi usano di più la RAM; valori alti spostano prima i dati sul disco. 10-30 è ideale per la maggior parte dei PC desktop.")).color(ui::text_dim()));
@@ -894,7 +894,7 @@ format!(
         );
         ui.horizontal_wrapped(|ui| {
             self.run_btn(ui, ctx, t("Applica swappiness"), "perf", &swap, true, None);
-            ui.add_space(12.0);
+            ui.add_space(5.0);
             self.run_btn(
                 ui, ctx, t("Ottimizza tutto"), "perf", &all, true,
                 Some(t("Eseguire la manutenzione completa (TRIM, pulizia cache, ottimizzazione memoria)?")),

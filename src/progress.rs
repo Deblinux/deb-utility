@@ -29,6 +29,12 @@ pub struct Progress {
     pub done: bool,
     pub started: Instant,
     pub finished: Option<Instant>,
+    /// `true` per i job avviati con `App::bg()`: non devono essere chiusi
+    /// dal `Busy(false)` di un'altra operazione in foreground.
+    pub background: bool,
+    /// Generatione dei job rilanciati (es. treemap): scarta snapshot in volo
+    /// di una scansione già annullata.
+    pub generation: Option<u64>,
 }
 
 impl Progress {
@@ -41,6 +47,8 @@ impl Progress {
             done: false,
             started: Instant::now(),
             finished: None,
+            background: false,
+            generation: None,
         }
     }
 
@@ -81,6 +89,8 @@ pub struct ProgressReporter {
     last_emit: Instant,
     last_fraction: Option<f32>,
     last_detail: String,
+    background: bool,
+    generation: Option<u64>,
 }
 
 impl ProgressReporter {
@@ -92,17 +102,29 @@ impl ProgressReporter {
             detail: String::new(),
             fraction: None,
             started: Instant::now(),
-            last_emit: Instant::now() - EMIT_INTERVAL,
+            last_emit: Instant::now().checked_sub(EMIT_INTERVAL).unwrap_or_else(Instant::now),
             last_fraction: None,
             last_detail: String::new(),
+            background: ch.background,
+            generation: None,
         };
         r.emit_snapshot(false);
+        // `emit_snapshot` aggiorna `last_emit`: lo si riarma per non perdere il
+        // primo `status()` subito dopo `start()` (es. "attendo pkexec").
+        r.last_emit = Instant::now().checked_sub(EMIT_INTERVAL).unwrap_or_else(Instant::now);
         r
+    }
+
+    /// Associa lo snapshot a una "generazione": consente alla UI di scartare
+    /// gli aggiornamenti di una scansione annullata e poi rilanciata.
+    pub fn with_generation(mut self, generation: u64) -> Self {
+        self.generation = Some(generation);
+        self
     }
 
     /// Avanzamento noto (0.0 - 1.0) con messaggio di stato.
     pub fn set(&mut self, fraction: f32, detail: impl Into<String>) {
-        self.fraction = Some(fraction.clamp(0.0, 1.0));
+        self.fraction = Some(if fraction.is_finite() { fraction.clamp(0.0, 1.0) } else { 0.0 });
         self.detail = shorten(detail.into());
         self.emit();
     }
@@ -114,6 +136,17 @@ impl ProgressReporter {
         } else {
             self.set(current as f32 / total as f32, detail);
         }
+    }
+
+    /// Avanzamento di una fase dentro un intervallo dedicato: evita che la
+    /// barra torni a 0 (o resti al 100%) quando inizia la fase successiva.
+    pub fn phase(&mut self, base: f32, span: f32, current: usize, total: usize, detail: impl Into<String>) {
+        let fraction = if total == 0 {
+            base
+        } else {
+            base + span * (current.min(total) as f32 / total as f32)
+        };
+        self.set(fraction, detail);
     }
 
     /// Aggiorna solo la descrizione: la barra resta animata (indeterminata)
@@ -192,6 +225,8 @@ impl ProgressReporter {
             done,
             started: self.started,
             finished: if done { Some(Instant::now()) } else { None },
+            background: self.background,
+            generation: self.generation,
         }));
     }
 }

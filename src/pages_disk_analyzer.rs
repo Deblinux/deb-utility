@@ -186,7 +186,7 @@ fn collect_recent_big_files<F: FnMut(&str)>(
 }
 
 pub fn scan_heavy_caches() -> Vec<HeavyCacheDir> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
+    let home = crate::util::home();
     let home_p = PathBuf::from(&home);
 
     let candidates: Vec<(&str, PathBuf)> = vec![

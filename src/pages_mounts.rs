@@ -159,7 +159,7 @@ impl App {
             });
         });
 
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         if self.mounts_state.entries.is_empty() {
             ui::card(ui, |ui| {
@@ -228,7 +228,7 @@ let is_protected =
                     };
                     ui.label(egui::RichText::new(mp_text).size(14.0).color(ui::text_dim()));
                 });
-                ui.add_space(4.0);
+                ui.add_space(2.0);
             }
         }
 
@@ -250,7 +250,7 @@ let is_protected =
             });
 
             if !have_tool {
-                ui.add_space(6.0);
+                ui.add_space(3.0);
                 ui.colored_label(
                     ui::WARN,
                     format!(
@@ -271,7 +271,7 @@ let is_protected =
                 );
             }
 
-            ui.add_space(8.0);
+            ui.add_space(3.0);
             ui.horizontal(|ui| {
                 ui.label(t("Server / IP:"));
                 ui.add(
@@ -319,7 +319,7 @@ let is_protected =
             let user_clean = self.mounts_state.username.trim().to_string();
             let valid = !host_clean.is_empty() && !rem_clean.is_empty() && have_tool;
 
-            ui.add_space(8.0);
+            ui.add_space(3.0);
             ui.horizontal(|ui| {
                 let q_mp = util::shq(&local_mp);
                 let mount_cmd = match kind {
@@ -369,7 +369,7 @@ let is_protected =
             });
         });
 
-        ui.add_space(8.0);
+        ui.add_space(3.0);
         self.show_out(ui, "mounts", 200.0);
     }
 }

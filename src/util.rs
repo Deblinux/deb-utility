@@ -1,4 +1,5 @@
-use std::os::unix::fs::PermissionsExt;
+use std::io::Write;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -11,7 +12,9 @@ pub fn uid() -> u32 {
                 .and_then(|l| l.split_whitespace().nth(1))
                 .and_then(|u| u.parse().ok())
         })
-        .unwrap_or(0)
+        // Valore sentinella: se non riusciamo a leggere l'UID non dobbiamo
+        // considerarci root e avviare operazioni privilegiate.
+        .unwrap_or(u32::MAX)
 }
 
 pub fn is_root() -> bool {
@@ -39,6 +42,22 @@ pub fn run_shell(script: &str, privileged: bool) -> (bool, String) {
         }
         Err(e) => (false, format!("Impossibile eseguire il comando: {e}")),
     }
+}
+
+/// Espande il prefisso `~` nei percorsi digitati dall'utente nei campi di testo.
+/// La shell non espande la tilde quando il percorso arriva come argomento.
+pub fn expand_path(s: &str) -> String {
+    let s = s.trim();
+    if s == "~" {
+        return home();
+    }
+    if let Some(rest) = s.strip_prefix("~/") {
+        let h = home();
+        if !h.is_empty() {
+            return format!("{h}/{rest}");
+        }
+    }
+    s.to_string()
 }
 
 pub fn tail(s: &str, n: usize) -> String {
@@ -76,13 +95,15 @@ pub fn home() -> String {
             if is_root() {
                 "/root".to_string()
             } else {
-                String::new()
+                // Senza HOME, risolvere la home reale evita percorsi relativi
+                // alla cartella corrente (pericolosi nelle operazioni di pulizia).
+                home_for_account(&uid().to_string()).unwrap_or_default()
             }
         })
 }
 
-/// Ricava la home di un utente (uid numerico o nome) da `getent passwd`.
-fn home_for_account(account: &str) -> Option<String> {
+/// Campo di `getent passwd` per un uid numerico o un nome utente.
+fn passwd_field(account: &str, index: usize) -> Option<String> {
     let account = account.trim();
     if account.is_empty() {
         return None;
@@ -98,12 +119,32 @@ fn home_for_account(account: &str) -> Option<String> {
     stdout
         .lines()
         .next()
-        .and_then(|line| line.split(':').nth(5))
-        .map(|h| h.trim().to_string())
-        .filter(|h| !h.is_empty())
+        .and_then(|line| line.split(':').nth(index))
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+/// Ricava la home di un utente (uid numerico o nome) da `getent passwd`.
+fn home_for_account(account: &str) -> Option<String> {
+    passwd_field(account, 5)
 }
 
 pub fn username() -> String {
+    // Con pkexec/sudo `$USER` è root: risolvere l'account reale evita di
+    // leggere/modificare i gruppi (o generare chiavi) dell'utente sbagliato.
+    if is_root() {
+        for account in [
+            std::env::var("PKEXEC_UID").ok(),
+            std::env::var("SUDO_USER").ok(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(name) = passwd_field(&account, 0) {
+                return name;
+            }
+        }
+    }
     std::env::var("USER")
         .ok()
         .filter(|u| !u.is_empty())
@@ -204,6 +245,34 @@ pub fn run_stream(script: &str, privileged: bool, mut emit: impl FnMut(&str, boo
     child.wait().map(|s| s.success()).unwrap_or(false)
 }
 
+/// Se DebUtility gira elevato, restituisce la cartella di stato all'utente
+/// che ha richiesto l'elevazione: altrimenti la CLI `--user` non potrebbe
+/// più leggere/scrivere lo stato.
+fn chown_to_invoking_user(path: &Path) {
+    if !is_root() {
+        return;
+    }
+    // pkexec e sudo espongono variabili diverse: usare il primo pair valido.
+    for (uid_var, gid_var) in [("PKEXEC_UID", "PKEXEC_GID"), ("SUDO_UID", "SUDO_GID")] {
+        if let (Ok(uid), Ok(gid)) = (
+            std::env::var(uid_var),
+            std::env::var(gid_var),
+        ) {
+            if !uid.is_empty()
+                && !gid.is_empty()
+                && uid.bytes().all(|b| b.is_ascii_digit())
+                && gid.bytes().all(|b| b.is_ascii_digit())
+            {
+                let _ = Command::new("chown")
+                    .arg(format!("{uid}:{gid}"))
+                    .arg(path)
+                    .status();
+                return;
+            }
+        }
+    }
+}
+
 /// Cartella di stato per i dati scritti dalla modalità headless.
 ///
 /// Usa `XDG_STATE_HOME/debutility` o `~/.local/state/debutility`; se la home non
@@ -231,6 +300,9 @@ pub fn state_dir() -> Result<PathBuf, String> {
                 // che la crea deve poterla leggere/scrivere.
                 std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
                     .map_err(|e| format!("Impossibile proteggere {}: {e}", dir.display()))?;
+                // Se l'app gira con pkexec la cartella è di root: restituirla
+                // all'utente reale, altrimenti la CLI non può leggerla.
+                chown_to_invoking_user(&dir);
                 return Ok(dir);
             }
             Err(e) => last_error = format!("{}: {e}", dir.display()),
@@ -266,9 +338,25 @@ pub fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(dir)
         .map_err(|e| format!("Impossibile creare {}: {e}", dir.display()))?;
-    let tmp = dir.join(format!(".debutility-{}.tmp", std::process::id()));
-    std::fs::write(&tmp, contents)
-        .map_err(|e| format!("Impossibile scrivere {}: {e}", tmp.display()))?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp = dir.join(format!(".debutility-{}-{stamp}.tmp", std::process::id()));
+    // create_new evita di seguire un link simbolico preesistente; mode(0o600)
+    // impedisce che un file di stato privato diventi leggibile da tutti dopo
+    // la rename.
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&tmp)
+        .map_err(|e| format!("Impossibile creare {}: {e}", tmp.display()))?;
+    if let Err(e) = file.write_all(contents.as_bytes()).and_then(|_| file.sync_all()) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("Impossibile scrivere {}: {e}", tmp.display()));
+    }
+    drop(file);
     match std::fs::rename(&tmp, path) {
         Ok(()) => Ok(()),
         Err(e) => {

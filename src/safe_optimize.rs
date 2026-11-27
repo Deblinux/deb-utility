@@ -1,7 +1,7 @@
 use crate::cleaner::{self, Kind};
 use crate::i18n::{t, tf};
 use crate::util::{home, run_shell, tail};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub const TAB_TITLE: &str = "Ottimizza in sicurezza";
@@ -101,17 +101,18 @@ impl OptimizeReport {
 }
 
 fn any_browser_running() -> bool {
-    BROWSER_PROCS.iter().any(|name| {
-        Command::new("pgrep")
-            .arg("-x")
-            .arg(name)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    })
+    for name in BROWSER_PROCS {
+        match Command::new("pgrep").arg("-x").arg(name).output() {
+            Ok(out) if out.status.success() => return true,
+            // pgrep assente: non possiamo garantire che i browser siano chiusi.
+            Err(_) => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
-fn remove_dir_children(path: &PathBuf) -> usize {
+fn remove_dir_children(path: &Path) -> usize {
     let mut errors = 0;
     if let Ok(rd) = std::fs::read_dir(path) {
         for entry in rd.flatten() {

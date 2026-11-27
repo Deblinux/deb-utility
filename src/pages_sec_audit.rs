@@ -1,5 +1,5 @@
-use crate::i18n::{t, tf};
-use crate::{ui, util, App, Chan, Job, Msg};
+use crate::i18n::t;
+use crate::{ui, util, App};
 use eframe::egui;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -15,12 +15,22 @@ pub struct InsecureFile {
 
 pub fn audit_permissions() -> Vec<InsecureFile> {
     let mut list = Vec::new();
-    let home = match std::env::var("HOME") {
-        Ok(h) => PathBuf::from(h),
-        Err(_) => return list,
-    };
+    // `util::home()` risolve l'utente reale anche quando l'app gira con pkexec.
+    let home = PathBuf::from(util::home());
+    if home.as_os_str().is_empty() {
+        return list;
+    }
 
     let ssh_dir = home.join(".ssh");
+    // Un symlink ha sempre mode 0777: correggerlo significherebbe cambiare i
+    // permessi del bersaglio, non del link. Non toccare link simbolici.
+    if ssh_dir
+        .symlink_metadata()
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return list;
+    }
     if ssh_dir.exists() {
         if let Ok(md) = ssh_dir.symlink_metadata() {
             let mode = md.permissions().mode() & 0o777;
@@ -37,6 +47,9 @@ pub fn audit_permissions() -> Vec<InsecureFile> {
             for entry in rd.flatten() {
                 let p = entry.path();
                 if let Ok(md) = p.symlink_metadata() {
+                    if md.file_type().is_symlink() {
+                        continue;
+                    }
                     let mode = md.permissions().mode() & 0o777;
                     let file_name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
                     if file_name.ends_with(".pub") {
@@ -66,6 +79,9 @@ pub fn audit_permissions() -> Vec<InsecureFile> {
         for entry in rd.flatten() {
             let p = entry.path();
             if let Ok(md) = p.symlink_metadata() {
+                if md.file_type().is_symlink() {
+                    continue;
+                }
                 let mode = md.permissions().mode() & 0o777;
                 if mode == 0o777 || mode == 0o666 {
                     list.push(InsecureFile {
@@ -83,6 +99,17 @@ pub fn audit_permissions() -> Vec<InsecureFile> {
 }
 
 pub fn fix_permission(item: &InsecureFile) -> Result<(), std::io::Error> {
+    // `set_permissions` segue i symlink: rifiutarli esplicitamente evita di
+    // cambiare i permessi del bersaglio (per esempio una chiave privata).
+    if fs::symlink_metadata(&item.path)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Symlink: correzione non applicata",
+        ));
+    }
     let perms = fs::Permissions::from_mode(item.recommended_mode);
     fs::set_permissions(&item.path, perms)
 }
@@ -94,22 +121,34 @@ impl App {
             ui.label(egui::RichText::new(t("Audit permessi e file esposti")).strong().size(20.0));
             ui.label(t("Analizza file e cartelle sensibili (come ~/.ssh) per verificare che non siano leggibili o modificabili da altri utenti del sistema."));
         });
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         let issues = audit_permissions();
         ui.horizontal(|ui| {
             ui.label(format!("{}: {}", t("Problemi rilevati"), issues.len()));
             if !issues.is_empty() && ui::primary_button(ui, t("Correggi tutti i permessi"), !self.busy).clicked() {
                 let mut fixed = 0;
+                let mut failed = 0;
                 for i in &issues {
-                    if fix_permission(i).is_ok() {
-                        fixed += 1;
+                    match fix_permission(i) {
+                        Ok(()) => fixed += 1,
+                        Err(e) => {
+                            failed += 1;
+                            self.log.push_str(&format!(
+                                "✘ {} ({}): {e}\n",
+                                t("Impossibile correggere i permessi"),
+                                i.path.display()
+                            ));
+                        }
                     }
                 }
                 self.log.push_str(&format!("✔ Corretti i permessi di {fixed} elementi.\n"));
+                if failed > 0 {
+                    self.log.push_str(&format!("✘ {failed} elementi non corretti.\n"));
+                }
             }
         });
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         if issues.is_empty() {
             ui::card(ui, |ui| {
@@ -123,13 +162,23 @@ impl App {
                         ui.label(item.path.display().to_string());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button(t("Correggi")).clicked() {
-                                let _ = fix_permission(&item);
+                                match fix_permission(&item) {
+                                    Ok(()) => self.log.push_str(&format!(
+                                        "✔ Permessi corretti: {}\n",
+                                        item.path.display()
+                                    )),
+                                    Err(e) => self.log.push_str(&format!(
+                                        "✘ {} ({}): {e}\n",
+                                        t("Impossibile correggere i permessi"),
+                                        item.path.display()
+                                    )),
+                                }
                             }
                         });
                     });
                     ui.label(egui::RichText::new(t(item.reason)).size(14.0).color(ui::text_dim()));
                 });
-                ui.add_space(4.0);
+                ui.add_space(2.0);
             }
         }
     }
@@ -140,7 +189,7 @@ impl App {
             ui.label(egui::RichText::new(t("Gestione chiavi SSH")).strong().size(20.0));
             ui.label(t("Visualizza le tue chiavi pubbliche da copiare su server remoti o GitHub, oppure crea una nuova coppia ed25519."));
         });
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         let home = util::home();
         let ssh_dir = Path::new(&home).join(".ssh");
@@ -150,7 +199,11 @@ impl App {
                 let p = e.path();
                 if p.extension().map(|x| x == "pub").unwrap_or(false) {
                     if let Ok(content) = fs::read_to_string(&p) {
-                        keys.push((p.file_name().unwrap().to_string_lossy().to_string(), content.trim().to_string()));
+                        let name = p
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| p.to_string_lossy().into_owned());
+                        keys.push((name, content.trim().to_string()));
                     }
                 }
             }
@@ -160,14 +213,18 @@ impl App {
             if ui::primary_button(ui, t("➕ Genera nuova chiave ED25519"), !self.busy).clicked() {
                 let user = util::username();
                 let host = sysinfo::System::host_name().unwrap_or_else(|| "linux".into());
-                let script = format!("ssh-keygen -t ed25519 -C '{user}@{host}' -f \"$HOME/.ssh/id_ed25519\" -N ''");
+                let comment = format!("{user}@{host}");
+                let script = format!(
+                    "mkdir -p -m 700 \"$HOME/.ssh\" && ssh-keygen -t ed25519 -C {} -f \"$HOME/.ssh/id_ed25519\" -N ''",
+                    util::shq(&comment)
+                );
                 self.spawn(ctx, crate::cmd_job("ssh", script, false));
             }
             let (_, agent_out) = util::run_shell("ssh-add -l 2>/dev/null", false);
             let agent_active = !agent_out.contains("Could not open a connection") && !agent_out.trim().is_empty();
             ui::led(ui, Some(agent_active), if agent_active { "SSH-Agent attivo" } else { "SSH-Agent non attivo o vuoto" });
         });
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         for (name, pub_content) in keys {
             ui::card(ui, |ui| {
@@ -180,7 +237,7 @@ impl App {
                 });
                 ui.add(egui::TextEdit::multiline(&mut pub_content.as_str()).desired_rows(2).desired_width(f32::INFINITY));
             });
-            ui.add_space(6.0);
+            ui.add_space(3.0);
         }
         self.show_out(ui, "ssh", 100.0);
     }
@@ -191,7 +248,7 @@ impl App {
             ui.label(egui::RichText::new(t("Scanner Rootkit e Malware")).strong().size(20.0));
             ui.label(t("Esegue una scansione del sistema alla ricerca di rootkit, trojan e file modificati illegalmente usando chkrootkit o rkhunter."));
         });
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         let have_chk = util::run_shell("command -v chkrootkit >/dev/null 2>&1", false).0;
         let have_rkh = util::run_shell("command -v rkhunter >/dev/null 2>&1", false).0;
@@ -221,7 +278,7 @@ impl App {
                 ui.spinner();
             }
         });
-        ui.add_space(8.0);
+        ui.add_space(3.0);
         self.show_out_follow(ui, "rootkit", 320.0);
     }
 }

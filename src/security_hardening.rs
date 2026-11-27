@@ -1,5 +1,5 @@
 use crate::i18n::t;
-use crate::{ui, util, App};
+use crate::{ui, App};
 use eframe::egui;
 
 impl App {
@@ -12,15 +12,16 @@ impl App {
             );
         });
 
-        ui.add_space(8.0);
+        ui.add_space(3.0);
         
         // 1. Blocco Hardening Kernel & Rete
         ui::card(ui, |ui| {
             ui.label(egui::RichText::new(t("🔐 Hardening Kernel & Parametri di Rete (Sysctl)")).strong().size(18.0).color(ui::semantic_text(ui::WARN)));
             ui.label(t("Applica parametri di sicurezza avanzati per prevenire SYN flood, IP spoofing, limitare i dump di memoria e proteggere il routing. Verrà creato un file di configurazione persistente in /etc/sysctl.d/99-debutility-hardening.conf."));
-            ui.add_space(6.0);
+            ui.add_space(3.0);
 
             let sysctl_script = r#"
+            set -e
             cat << 'EOF' > /etc/sysctl.d/99-debutility-hardening.conf
 # Protezione SYN Flood e Cookie
 net.ipv4.tcp_syncookies = 1
@@ -39,7 +40,7 @@ net.ipv4.conf.default.accept_redirects = 0
 net.ipv4.conf.all.secure_redirects = 0
 net.ipv4.icmp_echo_ignore_broadcasts = 1
 
-# Disabilita Log di pacchetti falsificati (Martians)
+# Abilita il log dei pacchetti falsificati (Martians)
 net.ipv4.conf.all.log_martians = 1
 
 # Protezione da attacchi race condition su /tmp
@@ -49,8 +50,10 @@ fs.protected_symlinks = 1
 # Disabilita Coredump per processi UID differenti (evita leak di memoria)
 fs.suid_dumpable = 0
 EOF
-sysctl --system >/dev/null 2>&1
+sysctl --system
 echo '✔ Hardening di rete e kernel applicato con successo!'
+echo '--- Valori attuali ---'
+sysctl -n net.ipv4.tcp_syncookies net.ipv4.conf.all.rp_filter fs.protected_symlinks fs.suid_dumpable
             "#;
 
             self.run_btn(
@@ -64,15 +67,16 @@ echo '✔ Hardening di rete e kernel applicato con successo!'
             );
         });
 
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         // 2. Controllo Permessi File Critici
         ui::card(ui, |ui| {
             ui.label(egui::RichText::new(t("📂 Verifica Permessi File Critici")).strong().size(18.0).color(ui::accent_text()));
             ui.label(t("Controlla che i file di sistema cruciali (/etc/passwd, /etc/shadow, /etc/sudoers) abbiano i permessi corretti e non siano modificabili da utenti non autorizzati."));
-            ui.add_space(6.0);
+            ui.add_space(3.0);
 
             let audit_script = r#"
+            set -e
             echo "▶ Controllo permessi file critici (/etc/passwd, /etc/shadow, /etc/sudoers)..."
             
             PASSWD_PERM=$(stat -c %a /etc/passwd)
@@ -83,10 +87,12 @@ echo '✔ Hardening di rete e kernel applicato con successo!'
             echo "• /etc/shadow permessi: $SHADOW_PERM (Consigliato: 640 o 000)"
             echo "• /etc/sudoers permessi: $SUDOERS_PERM (Consigliato: 440)"
             
-            # Correzione automatica sicura
-            chmod 644 /etc/passwd
-            chmod 440 /etc/sudoers
-            echo "✔ Audit permessi completato e correzioni applicate."
+            # Correzione automatica sicura: /etc/shadow veniva solo controllato.
+            [ "$PASSWD_PERM" = "644" ] || chmod 644 /etc/passwd
+            [ "$SUDOERS_PERM" = "440" ] || chmod 440 /etc/sudoers
+            [ "$SHADOW_PERM" = "640" ] || [ "$SHADOW_PERM" = "000" ] || chmod 640 /etc/shadow
+            stat -c '%n %a' /etc/passwd /etc/shadow /etc/sudoers
+            echo "✔ Audit permessi completato e correzioni verificate."
             "#;
 
             self.run_btn(
@@ -100,13 +106,13 @@ echo '✔ Hardening di rete e kernel applicato con successo!'
             );
         });
 
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         // 3. Porte Aperte e Servizi di Rete
         ui::card(ui, |ui| {
             ui.label(egui::RichText::new(t("🌐 Analisi Porte Locali e Servizi in Ascolto")).strong().size(18.0).color(ui::semantic_text(ui::GOOD)));
             ui.label(t("Elenca tutte le porte di rete aperte sul computer e i relativi programmi associati, per identificare eventuali servizi esposti non necessari."));
-            ui.add_space(6.0);
+            ui.add_space(3.0);
 
             let ports_script = "ss -tulpn 2>/dev/null || netstat -tulpn 2>/dev/null";
 
@@ -116,12 +122,12 @@ echo '✔ Hardening di rete e kernel applicato con successo!'
                 t("📋 Mostra Porte e Servizi in Ascolto"),
                 "hardening",
                 ports_script,
-                false,
+                true,
                 None,
             );
         });
 
-        ui.add_space(8.0);
+        ui.add_space(3.0);
         self.show_out(ui, "hardening", 220.0);
     }
 }

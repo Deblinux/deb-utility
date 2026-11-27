@@ -1,5 +1,5 @@
 use crate::i18n::{t, tf, tr};
-use crate::{cmd_job, fix_job, health, ui, util, App, Job, Msg};
+use crate::{fix_job, health, ui, util, App, Job, Msg};
 use eframe::egui;
 use std::collections::BTreeMap;
 use std::fs;
@@ -368,8 +368,13 @@ impl App {
     }
 
     pub(crate) fn load_sources(&self, ctx: &egui::Context) {
+        // Lettura rapida: niente barra di progresso (che non avrebbe `busy`
+        // a proteggerla) e nessun output parziale da aggiornare.
         let script = "for f in /etc/apt/sources.list /etc/apt/sources.list.d/*; do [ -f \"$f\" ] && { echo \"### $f\"; cat \"$f\"; echo; }; done";
-        self.bg(ctx, cmd_job("sources", script.to_string(), false));
+        self.bg(ctx, |ch| {
+            let (_, out) = crate::util::run_shell(script, false);
+            ch.send(Msg::Out("sources", out));
+        });
     }
 
     // ----- Fixer
@@ -428,18 +433,18 @@ impl App {
                     }
                 });
                 ui.label(egui::RichText::new(tr_detail(&c.detail)).color(ui::text_dim()));
-                ui.add_space(6.0);
+                ui.add_space(3.0);
             }
         });
         if let Some(f) = fix_one {
             self.spawn_snapshot(ctx, fix_job(f));
         }
-ui.add_space(8.0);
+ui.add_space(3.0);
     ui::card(ui, |ui| {
         ui.label(egui::RichText::new(t("Risoluzione Errori APT e Chiavi GPG")).strong().color(ui::accent_text()).size(16.0));
-        ui.add_space(4.0);
+        ui.add_space(2.0);
         ui.label(t("Rileva automaticamente le firme digitali mancanti (NO_PUBKEY) dai repository PPA di terze parti e le scarica dai server ufficiali per sbloccare gli aggiornamenti di sistema."));
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         if ui::primary_button(ui, t("Correggi chiavi GPG mancanti"), !self.busy).clicked() {
             let script = crate::solutions::fix_missing_gpg_keys_script(); // <-- Modifica qui
@@ -571,7 +576,7 @@ ui.add_space(8.0);
                 self.run_btn(ui, ctx, t("Applica governor"), "perf", &script, true, None);
             });
         }
-        ui.add_space(10.0);
+        ui.add_space(4.0);
         ui.heading(t("Memoria virtuale (swappiness)"));
         ui.add(egui::Slider::new(&mut self.swappiness, 0..=100).text(t("vm.swappiness")));
         let n = self.swappiness;
@@ -701,7 +706,7 @@ ui.add_space(8.0);
             1 => {
                 ui.label(t("Sorgenti software configurate:"));
                 self.show_out(ui, "sources", 260.0);
-                ui.add_space(6.0);
+                ui.add_space(3.0);
                 ui.label(t("Aggiungi un repository (riga completa, es. \"deb http://... suite componenti\"):"));
                 ui.add(egui::TextEdit::singleline(&mut self.repo_line).desired_width(f32::INFINITY));
                 let l = self.repo_line.trim().to_string();
@@ -751,7 +756,7 @@ ui.add_space(8.0);
 
     fn drivers_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.label(egui::RichText::new(t("Rileva l'hardware del computer e propone i driver e i firmware da installare.")).size(18.0));
-        ui.add_space(6.0);
+        ui.add_space(3.0);
         ui.horizontal(|ui| {
             if ui::primary_button(ui, t("Rileva hardware e driver"), !self.busy).clicked() {
                 self.spawn(ctx, |ch| {
@@ -765,7 +770,7 @@ ui.add_space(8.0);
                 ui.spinner();
             }
         });
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         if self.drv.is_empty() {
             ui.label(egui::RichText::new(t("Premi «Rileva hardware e driver» per analizzare il computer.")).color(ui::text_dim()));
@@ -781,11 +786,11 @@ ui.add_space(8.0);
                     }
                 });
             });
-            ui.add_space(10.0);
+            ui.add_space(4.0);
         }
 
         ui.label(egui::RichText::new(t("Driver proposti")).strong().size(20.0));
-        ui.add_space(4.0);
+        ui.add_space(2.0);
         for d in self.drv.iter_mut() {
             ui::card(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -805,7 +810,7 @@ ui.add_space(8.0);
                 ui.label(t(d.desc));
                 ui.label(egui::RichText::new(format!("{}: {}", t("Hardware"), d.hw)).color(ui::text_dim()));
             });
-            ui.add_space(6.0);
+            ui.add_space(3.0);
         }
 
         let missing = self.drv.iter().any(|d| !d.available && !d.installed);
@@ -838,7 +843,7 @@ ui.add_space(8.0);
                 });
                 self.confirm = Some(("Abilitare i componenti contrib e non-free di Debian?".into(), job));
             }
-            ui.add_space(8.0);
+            ui.add_space(3.0);
         }
 
         let sel: Vec<&'static str> =
@@ -874,7 +879,7 @@ ui.add_space(8.0);
 
     // ----- Startup
 
-pub(crate) fn ui_startup(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+pub(crate) fn ui_startup(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
         ui::title(ui, "Avvio e Servizi");
         
         // Aggiungiamo le sub-tab per dividere i programmi in avvio e le estensioni desktop
@@ -922,7 +927,7 @@ pub(crate) fn ui_startup(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
                 } else if shown == 0 {
                     ui.label(t("Nessuna voce corrisponde al filtro."));
                 }
-                ui.add_space(6.0);
+                ui.add_space(3.0);
                 if ui.button(t("🔄 Ricarica elenco")).clicked() {
                     self.startup = read_startup();
                 }
@@ -979,7 +984,7 @@ pub(crate) fn ui_startup(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         }
         let changing_sudo = self.groups.iter().any(|g| g.name == "sudo" && g.want != g.member);
         if changing_sudo {
-            ui.add_space(4.0);
+            ui.add_space(2.0);
             ui.colored_label(
                 ui::WARN,
                 t("⚠ Attenzione: stai modificando il gruppo sudo (privilegi di amministratore). Controlla bene prima di confermare."),

@@ -95,17 +95,17 @@ pub fn build_rollback_command(tx: &AptTransaction) -> Option<String> {
     let mut to_remove = Vec::new();
     let mut to_install = Vec::new();
 
-    // Estrae il nome pulito del pacchetto (es. "vlc:amd64 (3.0.20-1)" -> "vlc")
+    // Estrae il nome del pacchetto conservando il qualificatore multiarch
+    // (es. "libfoo:i386 (1.2)" -> "libfoo:i386"). Rimuove `libfoo:i386`
+    // diventerebbe `libfoo`, cancellando l'architettura sbagliata.
     let parse_name = |entry: &str| -> String {
         entry
             .split_whitespace()
             .next()
             .unwrap_or("")
-            .split(':')
-            .next()
-            .unwrap_or("")
-            .trim()
-            .to_string()
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || matches!(*c, '+' | '-' | '.' | ':'))
+            .collect()
     };
 
     // 1. Pacchetti installati in questa transazione -> vanno rimossi
@@ -141,14 +141,20 @@ pub fn build_rollback_command(tx: &AptTransaction) -> Option<String> {
         }
     }
 
+    // Nomi e versioni arrivano da un log di testo: quotarli evita che
+    // caratteri speciali vengano interpretati dalla shell con pkexec.
+    let quoted = |v: &[String]| v.iter().map(|s| crate::util::shq(s)).collect::<Vec<_>>().join(" ");
     let mut cmds = Vec::new();
     if !to_remove.is_empty() {
-        cmds.push(format!("DEBIAN_FRONTEND=noninteractive apt-get remove -y {}", to_remove.join(" ")));
+        cmds.push(format!(
+            "DEBIAN_FRONTEND=noninteractive apt-get remove -y {}",
+            quoted(&to_remove)
+        ));
     }
     if !to_install.is_empty() {
         cmds.push(format!(
             "DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades {}",
-            to_install.join(" ")
+            quoted(&to_install)
         ));
     }
 

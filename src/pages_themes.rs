@@ -1,4 +1,4 @@
-use crate::i18n::t;
+use crate::i18n::{t, tf};
 use crate::{ui, App, Chan, Job, Msg};
 use eframe::egui;
 use std::path::{Path, PathBuf};
@@ -116,6 +116,94 @@ fn is_font_file(p: &Path) -> bool {
     }
 }
 
+/// Copia una cartella di icone/temi senza seguire symlink.
+fn copy_theme_dir(src: &Path, dst: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dst).map_err(|e| format!("{}: {e}", dst.display()))?;
+    let entries = std::fs::read_dir(src).map_err(|e| format!("{}: {e}", src.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        let ft = entry.file_type().map_err(|e| format!("{}: {e}", from.display()))?;
+        if ft.is_symlink() {
+            continue;
+        }
+        if ft.is_dir() {
+            copy_theme_dir(&from, &to)?;
+        } else if ft.is_file() {
+            std::fs::copy(&from, &to).map_err(|e| format!("{}: {e}", from.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Installa i file scelti nella home dell'utente: font in
+/// `~/.local/share/fonts`, icone/temi in `~/.local/share/icons|themes`.
+pub fn install_files(paths: &[String]) -> Result<Vec<String>, String> {
+    let home = crate::util::home();
+    if home.is_empty() {
+        return Err(t("Home utente non disponibile.").to_string());
+    }
+    let mut logs = Vec::new();
+    let mut fonts_updated = false;
+
+    for p in paths {
+        let src = PathBuf::from(p);
+        let md = std::fs::symlink_metadata(&src).map_err(|e| format!("{p}: {e}"))?;
+        if md.file_type().is_symlink() {
+            return Err(tf("Symlink non supportato: {}", &[p]));
+        }
+        let name = src
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| t("Nome file non valido.").to_string())?;
+
+        if md.is_file() && is_font_file(&src) {
+            let dir = PathBuf::from(&home).join(".local/share/fonts");
+            std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            let dest = dir.join(name);
+            if dest.exists() {
+                logs.push(tf("Già presente, saltato: {}", &[&dest.display().to_string()]));
+                continue;
+            }
+            std::fs::copy(&src, &dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+            fonts_updated = true;
+            logs.push(tf("✔ Font installato: {}", &[&name]));
+        } else if md.is_dir() {
+            let index = std::fs::read_to_string(src.join("index.theme")).unwrap_or_default();
+            let is_icon = index.contains("[Icon Theme]");
+            let base = PathBuf::from(&home)
+                .join(".local/share")
+                .join(if is_icon { "icons" } else { "themes" });
+            std::fs::create_dir_all(&base).map_err(|e| format!("{}: {e}", base.display()))?;
+            let dest = base.join(name);
+            if dest.exists() {
+                logs.push(tf("Già presente, saltato: {}", &[&dest.display().to_string()]));
+                continue;
+            }
+            copy_theme_dir(&src, &dest)?;
+            logs.push(tf("✔ Elemento installato: {}", &[&name]));
+        } else {
+            logs.push(tf("✘ Tipo di file non supportato: {}", &[p]));
+        }
+    }
+
+    if fonts_updated {
+        match std::process::Command::new("fc-cache").arg("-fv").output() {
+            Ok(out) if out.status.success() => logs.push(t("✔ Cache font aggiornata.").to_string()),
+            Ok(out) => {
+                let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                logs.push(tf(
+                    "⚠ Cache font non aggiornata: {}",
+                    &[&crate::util::tail(&err, 1)],
+                ));
+            }
+            Err(e) => logs.push(tf("⚠ Cache font non aggiornata: {}", &[&e.to_string()])),
+        }
+    }
+    Ok(logs)
+}
+
 pub fn remove_items(items: &[CustomItem]) -> Result<(), String> {
     let mut updated_fonts = false;
     for item in items {
@@ -144,7 +232,7 @@ impl App {
             "Installa o rimuovi rapidamente pacchetti di icone, temi GTK/cursore e font personali in ~/.local/share e ~/.icons. L'installazione di font aggiornerà automaticamente la cache di sistema (fc-cache).",
         );
 
-        ui.add_space(8.0);
+        ui.add_space(3.0);
         ui.horizontal(|ui| {
             if ui.add_enabled(!self.busy, egui::Button::new(t("Scansiona elementi utente"))).clicked() {
                 let items = scan_user_themes();
@@ -155,16 +243,23 @@ impl App {
                 let ctx_c = ctx.clone();
                 let tx_c = self.tx.clone();
                 std::thread::spawn(move || {
+                    let start_dir = format!("--filename={}/", crate::util::home());
                     let out = std::process::Command::new("zenity")
-                        .args(["--file-selection", "--multiple", "--filename=/home/"])
+                        .args(["--file-selection", "--multiple", start_dir.as_str()])
                         .output();
-                    if let Ok(res) = out {
-                        if res.status.success() {
+                    match out {
+                        Ok(res) if res.status.success() => {
                             if let Ok(paths_str) = String::from_utf8(res.stdout) {
                                 let paths: Vec<String> = paths_str.split('|').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
-                                let _ = tx_c.send(Msg::Picked(Some(paths)));
+                                let _ = tx_c.send(Msg::ThemesPicked(Some(paths)));
                                 ctx_c.request_repaint();
                             }
+                        }
+                        Ok(_) => {} // annullo: nessun cambiamento
+                        Err(e) => {
+                            let msg = format!("{}: {e}", t("Nessun selettore di file trovato: installa zenity (sudo apt install zenity)"));
+                            let _ = tx_c.send(Msg::Log(msg));
+                            ctx_c.request_repaint();
                         }
                     }
                 });
@@ -174,13 +269,13 @@ impl App {
             }
         });
 
-        ui.add_space(12.0);
+        ui.add_space(5.0);
 
         ui::card(ui, |ui| {
             if self.theme_items.is_empty() {
                 ui.label(t("Nessun elemento personalizzato trovato o scansione non avviata. Clicca su 'Scansiona elementi utente'."));
             } else {
-                egui::ScrollArea::vertical().max_height(450.0).show(ui, |ui| {
+                egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
                     for item in &mut self.theme_items {
                         ui.horizontal(|ui| {
                             ui.checkbox(&mut item.selected, "");
@@ -193,11 +288,11 @@ impl App {
                             ui.label(egui::RichText::new(&item.name).strong().size(15.0));
                             ui.label(egui::RichText::new(format!("[{}]", item.item_type.label())).color(ui::text_dim()));
                         });
-                        ui.add_space(4.0);
+                        ui.add_space(2.0);
                     }
                 });
 
-                ui.add_space(10.0);
+                ui.add_space(4.0);
                 if ui::primary_button(ui, t("Rimuovi elementi selezionati"), !self.busy).clicked() {
                     let targets: Vec<CustomItem> = self.theme_items.iter().filter(|i| i.selected).cloned().collect();
                     if !targets.is_empty() {

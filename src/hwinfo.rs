@@ -546,14 +546,14 @@ fn ram_job() -> Job {
 fn section_card(ui: &mut egui::Ui, id: usize, title: &str, rows: &[(String, String)]) {
     ui::card(ui, |ui| {
         ui.label(egui::RichText::new(title).strong().size(19.0));
-        ui.add_space(4.0);
+        ui.add_space(2.0);
         egui::Grid::new(("hwsec", id)).num_columns(2).striped(true).show(ui, |ui| {
             for (k, v) in rows {
                 ui::kv(ui, k, v);
             }
         });
     });
-    ui.add_space(8.0);
+    ui.add_space(3.0);
 }
 
 impl App {
@@ -582,7 +582,7 @@ impl App {
                 cleaner::fmt_bytes(tm)
             )));
         });
-        ui.add_space(8.0);
+        ui.add_space(3.0);
         ui.horizontal(|ui| {
             if ui::primary_button(ui, t("Rileva marca e tipo dei moduli (richiede password)"), !self.busy).clicked() {
                 self.spawn(ctx, ram_job());
@@ -592,10 +592,10 @@ impl App {
             }
         });
         if !self.ram_msg.is_empty() {
-            ui.add_space(6.0);
+            ui.add_space(3.0);
             ui.colored_label(ui::semantic_text(ui::WARN), self.ram_msg.as_str());
         }
-        ui.add_space(8.0);
+        ui.add_space(3.0);
         if !self.ram_arr.is_empty() {
             section_card(ui, 100, t("Slot e capacità"), &self.ram_arr);
         }
@@ -610,7 +610,7 @@ impl App {
                     return;
                 }
                 ui.label(egui::RichText::new(format!("{}  ·  {} {}", m.slot, m.size, m.kind)).strong().size(19.0));
-                ui.add_space(4.0);
+                ui.add_space(2.0);
                 egui::Grid::new(("ram", i)).num_columns(2).striped(true).show(ui, |ui| {
                     if !m.maker.is_empty() {
                         ui::kv(ui, t("Marca"), &m.maker);
@@ -629,7 +629,7 @@ impl App {
                     }
                 });
             });
-            ui.add_space(8.0);
+            ui.add_space(3.0);
         }
     }
 
@@ -641,7 +641,7 @@ impl App {
         if ui.button(t("🔄 Ricarica")).clicked() {
             self.load_hw(ctx);
         }
-        ui.add_space(6.0);
+        ui.add_space(3.0);
         if self.gpus.is_empty() {
             ui.label(t("Nessuna scheda video rilevata (installa pciutils: sudo apt install pciutils)"));
         }
@@ -658,7 +658,7 @@ impl App {
         if ui.button(t("🔄 Ricarica")).clicked() {
             self.load_hw(ctx);
         }
-        ui.add_space(6.0);
+        ui.add_space(3.0);
         let c = &self.info.cpu;
         let mut cpu: Vec<(String, String)> = vec![
             (t("Modello").to_string(), c.model.clone()),

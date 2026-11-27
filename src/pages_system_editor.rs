@@ -1,7 +1,7 @@
-use crate::i18n::t;
-use crate::{Chan, Msg};
 use eframe::egui;
 use std::fs;
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 
 pub struct SystemFileEditor {
     pub selected_path: String,
@@ -45,7 +45,19 @@ impl SystemFileEditor {
             .map(|d| d.as_nanos())
             .unwrap_or(0);
         let tmp_path = format!("/tmp/debutility-edit-{}-{}", std::process::id(), stamp);
-        fs::write(&tmp_path, &self.content).map_err(|e| format!("Errore scrittura file temporaneo: {}", e))?;
+        // create_new + mode 0600: mai seguire un symlink preesistente e mai
+        // lasciare una copia leggibile di file sensibili (/etc/fstab, hosts...).
+        let mut tmp = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp_path)
+            .map_err(|e| format!("Errore creazione file temporaneo: {}", e))?;
+        if let Err(e) = tmp.write_all(self.content.as_bytes()).and_then(|_| tmp.sync_all()) {
+            let _ = fs::remove_file(&tmp_path);
+            return Err(format!("Errore scrittura file temporaneo: {}", e));
+        }
+        drop(tmp);
 
         // 1. Validazione sintattica specifica per fstab, PRIMA di toccare qualsiasi file
         if path == "/etc/fstab" {
@@ -53,11 +65,18 @@ impl SystemFileEditor {
                 .args(["-a", "--fake", "-T", tmp_path.as_str()])
                 .output();
 
-            if let Ok(res) = output {
-                if !res.status.success() {
+            match output {
+                Ok(res) if res.status.success() => {}
+                Ok(res) => {
                     let err_out = String::from_utf8_lossy(&res.stderr).to_string();
                     let _ = fs::remove_file(&tmp_path);
                     return Err(format!("Sintassi fstab non valida!\n{}", err_out));
+                }
+                Err(e) => {
+                    // `mount` assente: non possiamo garantire la validazione,
+                    // quindi non scrivere un file che può rompere il boot.
+                    let _ = fs::remove_file(&tmp_path);
+                    return Err(format!("Impossibile validare fstab (mount non disponibile): {e}"));
                 }
             }
         }
@@ -67,11 +86,15 @@ impl SystemFileEditor {
         //    e il nuovo contenuto sostituisce il file con un mv, così un'interruzione a metà
         //    non lascia mai un fstab troncato. Permessi e proprietario originali vengono mantenuti.
         let script = r#"set -e
-[ -e "$1" ] && cp -p -- "$1" "$1.bak"
-cat -- "$2" > "$1.debutility-new"
-chmod --reference="$1" "$1.debutility-new" 2>/dev/null || chmod 644 "$1.debutility-new"
-chown --reference="$1" "$1.debutility-new" 2>/dev/null || true
-mv -f -- "$1.debutility-new" "$1""#;
+if [ -L "$1" ]; then echo 'Destinazione symlink: salvataggio annullato.' >&2; exit 1; fi
+if [ -e "$1" ]; then cp -p -n -- "$1" "$1.bak" || true; fi
+NEW="$(mktemp "$1.debutility-new.XXXXXX")"
+trap 'rm -f -- "$NEW"' EXIT
+cat -- "$2" > "$NEW"
+chmod --reference="$1" "$NEW" 2>/dev/null || chmod 644 "$NEW"
+chown --reference="$1" "$NEW" 2>/dev/null || true
+mv -f -- "$NEW" "$1"
+trap - EXIT"#;
 
         let mut cmd = if crate::util::is_root() {
             std::process::Command::new("sh")

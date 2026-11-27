@@ -252,7 +252,7 @@ impl App {
             );
         });
 
-        ui.add_space(10.0);
+        ui.add_space(4.0);
 
         // --- SEZIONE 1: SALUTE BATTERIA ---
         ui.label(
@@ -261,7 +261,7 @@ impl App {
                 .strong()
                 .color(ui::text_dim()),
         );
-        ui.add_space(4.0);
+        ui.add_space(2.0);
 
         let batteries = scan_batteries();
         if batteries.is_empty() {
@@ -280,7 +280,7 @@ impl App {
                         ui.label(format!("({})", bat.status)); // Corretto: stampa direttamente lo stato
                     });
 
-                    ui.add_space(6.0);
+                    ui.add_space(3.0);
 
                     let health_color = if bat.health_percent >= 85.0 {
                         egui::Color32::from_rgb(70, 200, 110)
@@ -313,7 +313,7 @@ impl App {
                             )),
                     );
 
-                    ui.add_space(4.0);
+                    ui.add_space(2.0);
                     if let Some(cycles) = bat.cycle_count {
                         ui.label(format!("{}: {}", t("Cicli di carica completati"), cycles));
                     }
@@ -323,11 +323,11 @@ impl App {
                             .color(health_color),
                     );
                 });
-                ui.add_space(6.0);
+                ui.add_space(3.0);
             }
         }
 
-        ui.add_space(12.0);
+        ui.add_space(5.0);
 
         // --- SEZIONE 2: USURA DISCHI SSD / NVME ---
         ui.label(
@@ -336,7 +336,7 @@ impl App {
                 .strong()
                 .color(ui::text_dim()),
         );
-        ui.add_space(4.0);
+        ui.add_space(2.0);
 
         let disks = scan_storage();
         if disks.is_empty() {
@@ -355,7 +355,7 @@ impl App {
                         );
                         ui.label(egui::RichText::new(format!("[{}]", tag)).color(ui::text_dim()));
                     });
-                    ui.add_space(6.0);
+                    ui.add_space(3.0);
 
                     if let Some(wear) = disk.wear_level_percent {
                         let remaining_health = 100u8.saturating_sub(wear);
@@ -380,7 +380,7 @@ impl App {
                         );
                     }
 
-                    ui.add_space(4.0);
+                    ui.add_space(2.0);
                     ui.horizontal(|ui| {
                         if let Some(hours) = disk.power_on_hours {
                             ui.label(format!("{}: {} h  |", t("Ore di attività"), hours));
@@ -393,10 +393,10 @@ impl App {
                         }
                     });
 
-                    ui.add_space(4.0);
+                    ui.add_space(2.0);
                     ui.label(egui::RichText::new(&disk.status_summary).italics());
                 });
-                ui.add_space(6.0);
+                ui.add_space(3.0);
             }
         }
     }

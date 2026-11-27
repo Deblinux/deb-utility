@@ -77,7 +77,7 @@ impl App {
                 }
             });
 
-            ui.add_space(6.0);
+            ui.add_space(3.0);
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(t("Mostra:")).color(ui::text_dim()));
                 ui.selectable_value(&mut self.synaptic_filter_mode, 0, t("Tutti"));
@@ -86,7 +86,7 @@ impl App {
             });
         });
 
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         // --- Tabella lista pacchetti ---
         let mut action_cmd: Option<(String, String)> = None;
@@ -104,7 +104,7 @@ impl App {
 
             egui::ScrollArea::vertical()
                 .id_salt("synaptic_pkg_list")
-                .max_height(260.0)
+                .max_height(185.0)
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     let filtered: Vec<(usize, &SynapticPkg)> = self
@@ -201,7 +201,7 @@ impl App {
             self.confirm = Some((confirm_msg, job));
         }
 
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         // --- Pannello inferiore: Dettagli pacchetto & Log installazione ---
         ui::card(ui, |ui| {
@@ -214,10 +214,10 @@ impl App {
                     ui.label(egui::RichText::new(t("Dettagli pacchetto (clicca un nome sopra) e Log APT")).strong());
                 }
             });
-            ui.add_space(4.0);
+            ui.add_space(2.0);
             if !self.synaptic_details.is_empty() {
                 ui::output_box(ui, &self.synaptic_details, 110.0);
-                ui.add_space(6.0);
+                ui.add_space(3.0);
             }
             self.show_out_follow(ui, "synaptic_action", 100.0);
         });

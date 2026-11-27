@@ -1,5 +1,5 @@
 use crate::i18n::t;
-use crate::{ui, util, App, Chan, Msg};
+use crate::{ui, util, App, Msg};
 use eframe::egui;
 use std::fs;
 use std::path::PathBuf;
@@ -68,7 +68,8 @@ fn parse_duration_to_ms(s: &str) -> u64 {
 
 pub fn read_autostart_items() -> Vec<AutostartItem> {
     let mut items = Vec::new();
-    let home = std::env::var("HOME").unwrap_or_default();
+    // `util::home()` risolve l'utente reale anche sotto pkexec/root.
+    let home = util::home();
     if home.is_empty() {
         return items;
     }
@@ -143,7 +144,7 @@ impl App {
             t("Analizza i tempi di boot di systemd e gestisci i programmi all'avvio utente con controllo dei ritardi (delay), ideale per window manager leggeri."),
         );
 
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         ui.horizontal(|ui| {
             if ui.selectable_label(self.boot_tab == 0, t("⏱ Tempi di Boot (Systemd)")).clicked() {
@@ -155,12 +156,11 @@ impl App {
             }
         });
 
-        ui.add_space(12.0);
+        ui.add_space(5.0);
 
         if self.boot_tab == 0 {
             ui.horizontal(|ui| {
                 if ui.add_enabled(!self.busy, egui::Button::new(t("Aggiorna Analisi Avvio"))).clicked() {
-                    let ctx_clone = ctx.clone();
                     self.spawn(ctx, move |ch| {
                         ch.send(Msg::Log("▶ Eseguo systemd-analyze blame...".into()));
                         let (summary, items) = read_boot_blame();
@@ -174,20 +174,20 @@ impl App {
                 }
             });
 
-            ui.add_space(10.0);
+            ui.add_space(4.0);
             self.show_out_follow(ui, "boot", 80.0);
-            ui.add_space(8.0);
+            ui.add_space(3.0);
 
             if !self.boot_summary.is_empty() {
                 ui::card(ui, |ui| {
                     ui.label(egui::RichText::new(&self.boot_summary).strong().color(crate::ui::accent_text()).size(15.0));
                 });
-                ui.add_space(8.0);
+                ui.add_space(3.0);
             }
 
             ui::card(ui, |ui| {
                 ui.label(egui::RichText::new(format!("{} ({})", t("Servizi ordinati per tempo di avvio"), self.boot_items.len())).strong().color(crate::ui::accent_text()));
-                ui.add_space(8.0);
+                ui.add_space(3.0);
 
                 if self.boot_items.is_empty() {
                     ui.label(t("Nessun dato disponibile. Clicca su 'Aggiorna Analisi Avvio' per scansionare il sistema."));
@@ -195,7 +195,7 @@ impl App {
                     let items = self.boot_items.clone();
                     let busy = self.busy;
 
-                    egui::ScrollArea::vertical().max_height(450.0).show(ui, |ui| {
+                    egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
                         for item in &items {
                             ui.horizontal(|ui| {
                                 let color = if item.duration_ms > 1500 {
@@ -207,13 +207,13 @@ impl App {
                                 };
 
                                 ui.label(egui::RichText::new(&item.duration_str).strong().monospace().color(color));
-                                ui.add_space(12.0);
+                                ui.add_space(5.0);
                                 ui.label(egui::RichText::new(&item.name).strong().size(14.0));
 
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     let name = item.name.clone();
                                     if ui.add_enabled(!busy, egui::Button::new(egui::RichText::new(t("Disabilita")))).clicked() {
-                                        let script = format!("sudo systemctl disable {}", util::shq(&name));
+                                        let script = format!("systemctl disable {}", util::shq(&name));
                                         let job = crate::cmd_job("boot", script, true);
                                         self.spawn(ctx, job);
                                     }
@@ -243,13 +243,13 @@ impl App {
                     ui.text_edit_singleline(&mut self.new_autostart_delay);
                 });
 
-                ui.add_space(8.0);
+                ui.add_space(3.0);
                 if ui.button(egui::RichText::new(t("➕ Crea programma in autostart")).strong().size(14.0)).clicked() {
                     self.add_autostart_item();
                 }
             });
 
-            ui.add_space(12.0);
+            ui.add_space(5.0);
 
             ui::card(ui, |ui| {
                 ui.heading(t("Programmi registrati in autostart utente"));
@@ -294,7 +294,7 @@ impl App {
             return;
         }
 
-        let home = std::env::var("HOME").unwrap_or_default();
+        let home = util::home();
         if home.is_empty() {
             return;
         }

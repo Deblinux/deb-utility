@@ -1,5 +1,5 @@
 use crate::i18n::t;
-use crate::{ui, util, App};
+use crate::{ui, App};
 use eframe::egui;
 
 const TOKENS: &[&[&[&str]]] = &[
@@ -161,7 +161,7 @@ impl App {
         });
         if !has_errors {
             if report_ok && !out.trim().is_empty() {
-                ui.add_space(8.0);
+                ui.add_space(3.0);
                 ui::card(ui, |ui| {
                     ui.label(
                         egui::RichText::new(t("Nessun errore trovato: il sistema non ha registrato errori in questo avvio."))
@@ -179,7 +179,7 @@ impl App {
             return;
         }
 
-        ui.add_space(8.0);
+        ui.add_space(3.0);
 
         // Sezione Pulsanti di Correzione Automatica
         if !active_fixes.is_empty() {
@@ -188,10 +188,10 @@ impl App {
                 ui.label(t("In base agli errori riscontrati nei log, DebUtility può applicare le seguenti correzioni automatiche:"));
                 
                 for fix in active_fixes {
-                    ui.add_space(8.0);
+                    ui.add_space(3.0);
                     ui.label(egui::RichText::new(format!("• {}", t(fix.problem_title))).strong().size(16.0));
                     ui.label(t(fix.explanation));
-                    ui.add_space(4.0);
+                    ui.add_space(2.0);
                     
                     self.run_btn(
                         ui,
@@ -204,7 +204,7 @@ impl App {
                     );
                 }
             });
-            ui.add_space(8.0);
+            ui.add_space(3.0);
         }
 
         // Sezione Soluzioni Testuali Consigliate
@@ -216,7 +216,7 @@ impl App {
             }
             ui.label(egui::RichText::new(t("In base agli errori trovati ecco cosa puoi provare:")).color(ui::text_dim()));
             for (problem, fix) in hits {
-                ui.add_space(8.0);
+                ui.add_space(3.0);
                 ui.label(egui::RichText::new(format!("• {}", t(problem))).strong().size(17.0).color(ui::semantic_text(ui::WARN)));
                 ui.label(egui::RichText::new(t(fix)).size(16.0));
             }
@@ -227,17 +227,17 @@ impl App {
 pub fn fix_missing_gpg_keys_script() -> String {
     r#"
     echo "▶ Analizzo i repository alla ricerca di chiavi GPG mancanti (NO_PUBKEY)..."
-    MISSING_KEYS=$(sudo apt update 2>&1 | grep -o 'NO_PUBKEY [A-F0-9]*' | awk '{print $2}' | sort -u)
+    MISSING_KEYS=$(apt update 2>&1 | grep -o 'NO_PUBKEY [A-F0-9]*' | awk '{print $2}' | sort -u)
 
     if [ -z "$MISSING_KEYS" ]; then
         echo "✔ Nessuna chiave GPG mancante rilevata nell'ultimo aggiornamento."
     else
         for key in $MISSING_KEYS; do
             echo "🔑 Chiave mancante trovata: $key. Recupero in corso..."
-            sudo gpg --no-default-keyring --keyring /etc/apt/trusted.gpg.d/debutility-fixed.gpg --keyserver keyserver.ubuntu.com --recv-keys "$key"
+            gpg --no-default-keyring --keyring /etc/apt/trusted.gpg.d/debutility-fixed.gpg --keyserver keyserver.ubuntu.com --recv-keys "$key"
         done
         echo "▶ Aggiornamento indici APT con le nuove chiavi..."
-        sudo apt update
+        apt update
         echo "✔ Tutte le chiavi GPG sono state ripristinate con successo!"
     fi
     "#.to_string()

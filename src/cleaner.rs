@@ -250,7 +250,9 @@ pub fn clean_all_with_progress<F: FnMut(usize, usize, &str)>(
     let privs: Vec<&str> = kinds.iter().filter_map(|k| priv_cmd(*k)).collect();
     if !privs.is_empty() {
         on_progress(0, total, "Pulizia di sistema in corso...");
-        let (ok, out) = run_shell(&privs.join("; "), true);
+        // `&&`: un comando fallito non deve essere mascherato dall'ultimo della
+        // catena (con `;` il risultato era sempre quello dell'ultimo comando).
+        let (ok, out) = run_shell(&privs.join(" && "), true);
         let mark = if ok { "✔" } else { "✘" };
         log.push(format!("{mark} Pulizia di sistema: {}", tail(out.trim(), 3).replace('\n', " | ")));
         on_progress(1, total, log.last().map(String::as_str).unwrap_or("Pulizia di sistema"));
@@ -521,10 +523,12 @@ pub fn remove_orphan_configs(dirs: &[PathBuf]) -> bool {
 /// Controlla se un processo browser è attualmente in esecuzione
 fn is_browser_running(process_names: &[&str]) -> bool {
     for name in process_names {
-        if let Ok(out) = std::process::Command::new("pgrep").arg("-x").arg(name).output() {
-            if out.status.success() {
-                return true;
-            }
+        match std::process::Command::new("pgrep").arg("-x").arg(name).output() {
+            Ok(out) if out.status.success() => return true,
+            // Se pgrep non è installato non possiamo garantire che il browser
+            // sia chiuso: in modalità cautelativa consideriamo il processo attivo.
+            Err(_) => return true,
+            _ => {}
         }
     }
     false
@@ -534,22 +538,26 @@ fn is_browser_running(process_names: &[&str]) -> bool {
 fn find_browser_sqlite_dbs(dir: &Path, dbs: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
+        // file_type() non segue i symlink: non usciamo dal profilo del browser.
+        let Ok(ft) = entry.file_type() else { continue };
         let path = entry.path();
-        if path.is_dir() {
+        if ft.is_dir() {
             // Evitiamo ricorsioni superflue saltando cartelle pesanti non pertinenti
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                 if name != "Cache" && name != "Code Cache" && name != "GPUCache" {
                     find_browser_sqlite_dbs(&path, dbs);
                 }
             }
-        } else if let Some(fname) = path.file_name().and_then(|n| n.to_str()) {
-            let is_firefox_db = fname.ends_with(".sqlite");
-            let is_chromium_db = matches!(
-                fname,
-                "History" | "Web Data" | "Cookies" | "Favicons" | "Top Sites" | "Shortcuts"
-            );
-            if is_firefox_db || is_chromium_db {
-                dbs.push(path);
+        } else if ft.is_file() {
+            if let Some(fname) = path.file_name().and_then(|n| n.to_str()) {
+                let is_firefox_db = fname.ends_with(".sqlite");
+                let is_chromium_db = matches!(
+                    fname,
+                    "History" | "Web Data" | "Cookies" | "Favicons" | "Top Sites" | "Shortcuts"
+                );
+                if is_firefox_db || is_chromium_db {
+                    dbs.push(path);
+                }
             }
         }
     }
@@ -560,7 +568,12 @@ pub fn optimize_browser_databases() -> Vec<String> {
     let mut logs = Vec::new();
 
     // Verifica la presenza dell'eseguibile sqlite3 sul sistema
-    if std::process::Command::new("sqlite3").arg("--version").output().is_err() {
+    if !std::process::Command::new("sqlite3")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
         logs.push("✘ Comando 'sqlite3' non trovato sul sistema. Installalo con: sudo apt install sqlite3".into());
         return logs;
     }
@@ -604,8 +617,8 @@ pub fn optimize_browser_databases() -> Vec<String> {
                 .arg("VACUUM; REINDEX;")
                 .output();
 
-            if let Ok(out) = res {
-                if out.status.success() {
+            match res {
+                Ok(out) if out.status.success() => {
                     let after = fs::metadata(&db).map(|m| m.len()).unwrap_or(0);
                     if before > after {
                         total_saved += before - after;
@@ -613,6 +626,11 @@ pub fn optimize_browser_databases() -> Vec<String> {
                     browser_optimized += 1;
                     optimized_count += 1;
                 }
+                Ok(out) => logs.push(format!(
+                    "✘ sqlite3: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                )),
+                Err(e) => logs.push(format!("✘ sqlite3: {e}")),
             }
         }
 
